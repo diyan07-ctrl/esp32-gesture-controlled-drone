@@ -1,5 +1,7 @@
 # Gesture-Controlled Drone Using ESP32
 
+[Public GitHub repository](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone) · [Build and test runs](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/workflows/firmware-ci.yml)
+
 **Experimental custom UAV controller. Successful compilation or bench testing does not establish flight safety. Default firmware inhibits every ESC output. This project is not flight-ready.**
 
 A wearable ESP32-WROOM-32 and MPU6050 generate pilot commands over ESP-NOW. A second ESP32-WROOM-32 independently reads its onboard MPU6050, estimates attitude, runs stabilization, performs Quad-X mixing and controls four ESCs. **There is no dedicated flight controller, commercial fallback controller, or processor substitution.**
@@ -175,10 +177,10 @@ Read [safety state machine](docs/safety-and-failsafe.md) and [output enablement 
 | Hardware audit, electrical tables, BOM and six diagrams | Provisional; exact hardware verification pending |
 | Glove/drone firmware and shared control logic | Implemented as unvalidated development baseline |
 | ESC outputs | Disabled by four compile-time verification gates |
-| Unit tests and CI | Written; execution tracked separately |
-| Local firmware compilation | Not run: toolchain unavailable in restricted session |
-| Hardware, RF, bench, simulation execution, flight | Not tested |
-| Public GitHub publication | Public repository created under diyan07-ctrl; see publication record for push verification |
+| Unit tests and CI | Passed in GitHub Actions: both firmware targets, 1,537 C++ assertions, 4 Python tests, static checks and toy simulation |
+| Firmware compilation | Glove and drone compile in the pinned CI toolchain; see validation record |
+| Hardware, RF, bench, HIL, flight | Not tested; toy simulation is numeric regression only |
+| Public GitHub publication | Published under diyan07-ctrl; source paths/hashes and anonymous access verified |
 | Flight readiness | **Not established** |
 
 [Actual validation record](docs/validation-results.md) is authoritative. [Known limitations](docs/known-limitations.md) covers estimator dynamics, yaw drift, ADC/control faults, security/replay limits, actuator delay and missing measurements.

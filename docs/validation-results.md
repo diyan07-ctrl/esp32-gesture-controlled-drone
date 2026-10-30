@@ -5,22 +5,24 @@ This record distinguishes performed checks from prepared tests. No hardware was 
 | Check | Result | Evidence/limitation |
 |---|---|---|
 | Hardware feasibility review | Complete as provisional audit | Exact ESC, PCB variants, motor maker, prop data, pack C and mass absent |
-| Local compiler discovery | No C++ compiler found | git/node/uv/gh present; pio/python/g++/clang++ not found on PATH |
-| Toolchain preparation | Blocked | uv Python download failed with socket permission error 10013; protected local program folders denied |
-| Glove firmware compile | NOT RUN | PlatformIO/toolchain unavailable; no successful build claimed |
-| Drone firmware compile | NOT RUN | Same blocker |
-| Shared C++ unit tests | WRITTEN, NOT RUN | Compiler unavailable; CI is configured |
-| Python utility tests | WRITTEN, NOT RUN | Python unavailable |
-| Toy simulation | WRITTEN, NOT RUN | Compiler unavailable; never a flight model |
-| Repository static checks | PASS: 413 assertions across 72 source files, Node v24.21.0 | Actual final Node execution; local Markdown links, motor mapping, GPIO/default gates, CI commands, BOM IDs, secret-pattern scan and basic Mermaid structure checked. Not compilation, exhaustive secret detection or visual rendering |
+| Earlier local toolchain preparation | Historically blocked | Initial sandbox denied Python download/local tool access; remote CI subsequently executed the real builds/tests |
+| Glove firmware compile | PASS | CI run 41005573875 on e186721; static RAM 25,988 bytes, flash 312,137 bytes; these are build estimates, not runtime measurements |
+| Drone firmware compile | PASS | Same CI run; static RAM 25,900 bytes, flash 314,905 bytes; runtime heap/stack/jitter still unmeasured |
+| Shared C++ unit tests | PASS: 1,537 assertions | Actual compiled shared logic executed in CI |
+| Python utility tests | PASS: 4 tests | Python 3.12.15 in CI; battery/divider/parser and invalid-input cases |
+| Toy simulation | PASS: finite bounded numeric regression | Actual C++ roll model executed; final rate 3.61019 deg/s, angle 20.2055 deg under assumed plant. Not flight-stability evidence |
+| Repository static checks | PASS: 416 assertions across 73 source files at publication | Actual Node execution; local Markdown links, motor mapping, GPIO/default gates, CI commands, BOM IDs, secret-pattern scan and basic Mermaid structure checked. Later runs report their current counts. Not exhaustive secret detection or visual rendering |
 | Mermaid visual rendering | NOT RUN | Renderer unavailable; editable sources and motor SVG supplied |
-| CI | NOT RUN | Repository publication not completed |
+| CI | PASS | Both firmware jobs and logic job succeeded in run 41005573875; see links below for current revision |
 | Sensor/RF/ESC/bench/HIL/flight | NOT RUN | Physical hardware/instruments unavailable |
-| GitHub connector | Blocked after initial account inspection | Runtime returned Unknown tool on subsequent calls |
-| GitHub browser path | Blocked | Computer Use was not approved to use Brave, including retry after user authorization |
-| GitHub CLI | Blocked | Configuration path access denied; no credentials exposed or changed |
-| Local Git commit | Blocked | git init -b main succeeded; git add and commit could not create .git/index.lock (permission denied). No commit or hash exists |
+| GitHub publication | PASS | gh authenticated as diyan07-ctrl; repository created PUBLIC, source committed and pushed; initial 73 remote paths/blob hashes matched local |
+| Anonymous public access | PASS | Repository and raw README both returned HTTP 200 without authorization headers |
+| Engineering issue tracking | PASS | Issues #1 hardware/power, #2 airborne failsafe, #3 physical timing/sensor/controller evidence created |
 
-Initial connector profile was vishwam17-ctrl. User subsequently specified diyan07-ctrl. A public read-only web check verified the diyan07-ctrl profile exists and the requested repository returned 404. This does not authenticate write permission or exclude a private repository. The requested owner has not been authenticated by a successful connector runtime call. Do not publish into the previously connected account merely to bypass this owner requirement.
+Evidence: [successful run on e186721](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/41005573875), [current workflow runs](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/workflows/firmware-ci.yml), [public source](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone).
 
-A repository URL, remote visibility, pushed commit or CI pass must be added only after actual successful publication and public verification.
+Build environment: Ubuntu 24.04 hosted runner, PlatformIO Core 6.1.18, Espressif32 platform 6.9.0, framework-arduinoespressif32 3.20017.241212+sha.dcc1105b (Arduino 2.0.17), Xtensa toolchain 8.4.0+2021r2-patch5. Default pairing and output gates stayed disabled. This build therefore does not establish size or behavior of a provisioned, output-enabled aircraft.
+
+The first CI run failed because framework Wire/WiFi libraries were not discovered through shared headers. A project include_dir and direct app-level framework includes fixed discovery; the subsequent run passed. That successful run reported an ambiguous Wire.requestFrom overload and legacy action-runtime deprecation warnings. A following change selects the exact uint8_t/size_t/bool overload and pins verified current action releases; inspect the corresponding current run for its observed results. No warnings were suppressed to conceal a compiler failure.
+
+Initial connector/browser/filesystem restrictions were resolved for publication through the now-working authenticated CLI and process-scoped exact-path Git trust. Credentials were neither printed nor committed. No physical test or flight approval follows from this recovery.

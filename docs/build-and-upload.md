@@ -30,4 +30,4 @@ node tools/check_repository.mjs
 g++ -std=c++17 -I firmware/common simulation/tests/roll_model.cpp -o build/roll_model
 ./build/roll_model
 ```
-On Windows GCC creates .exe; use build/core_tests.exe. No compiler was found in this session. GitHub Actions actually runs both builds and tests if publication and Actions are available. A written workflow has no result until executed.
+On Windows GCC creates .exe; use build/core_tests.exe. Both firmware builds and the executable tests have now passed in GitHub Actions; see docs/validation-results.md for the recorded run and toolchain versions. Local tool availability varies. A written workflow alone is not a pass; inspect the actual run for the revision being tested.

@@ -8,7 +8,7 @@ namespace flight {
 class Imu {
  float bx=0,by=0,bz=0;unsigned samples=0;float sumx=0,sumy=0,sumz=0;
  bool write(uint8_t reg,uint8_t value){Wire.beginTransmission(0x68);Wire.write(reg);Wire.write(value);return Wire.endTransmission()==0;}
- bool read(uint8_t reg,uint8_t*p,uint8_t n){Wire.beginTransmission(0x68);Wire.write(reg);if(Wire.endTransmission(false))return false;if(Wire.requestFrom(uint8_t(0x68),n,true)!=n)return false;for(unsigned i=0;i<n;i++)p[i]=Wire.read();return true;}
+ bool read(uint8_t reg,uint8_t*p,uint8_t n){Wire.beginTransmission(0x68);Wire.write(reg);if(Wire.endTransmission(false))return false;if(Wire.requestFrom(uint8_t(0x68),size_t(n),true)!=n)return false;for(unsigned i=0;i<n;i++)p[i]=Wire.read();return true;}
  public:
  bool begin(){Wire.begin(cfg::sda,cfg::scl,400000);Wire.setTimeOut(2);uint8_t id=0;
   if(!read(0x75,&id,1)||id!=0x68)return false;
