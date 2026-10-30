@@ -1,0 +1,13 @@
+flowchart LR
+  USB["Protected USB bank 5 V"] ==> E["Glove ESP32; exact PCB unverified"]
+  E ==>|"3V3 and GND; verify breakout"| I["MPU6050 AD0=GND; INT unused"]
+  E -->|"GPIO21 SDA; 3V3 pullups"| I
+  E -->|"GPIO22 SCL; 400 kHz candidate"| I
+  ARM["Arm switch to GND; active LOW"] -->|"GPIO18 INPUT_PULLUP"| E
+  EN["Hold-to-enable to GND; active LOW"] -->|"GPIO19 INPUT_PULLUP"| E
+  REF["Regulated 2.5 V reference"] ==> TP["10k throttle pot"]
+  REF ==> YP["10k centered yaw pot"]
+  TP -->|"1k series; GPIO34 ADC1; 100nF and 100k to GND"| E
+  YP -->|"1k series; GPIO35 ADC1; 100nF and 100k to GND"| E
+  E -->|"GPIO23 via 1k"| LED["LED to GND"]
+  G["Common glove GND: bank, reference, pots, switches, sensor"] --- E

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="660" viewBox="0 0 880 660" role="img" aria-labelledby="title desc">
+<title id="title">Quad-X motor layout, top view</title><desc id="desc">M1 front-left clockwise, M2 front-right counterclockwise, M3 rear-right clockwise, M4 rear-left counterclockwise. Front points up.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6Z" fill="#167080"/></marker></defs>
+<rect width="880" height="660" fill="#f6f9fc"/><g font-family="Arial,sans-serif" text-anchor="middle" fill="#142c44">
+<text x="440" y="34" font-size="24" font-weight="bold">F450 Quad-X • TOP VIEW</text>
+<path d="M440 135V65" stroke="#167080" stroke-width="4" marker-end="url(#arrow)"/><text x="560" y="95" font-size="18">FRONT +X</text>
+<path d="M240 190L640 470M640 190L240 470" stroke="#667b90" stroke-width="28"/>
+<rect x="365" y="260" width="150" height="140" rx="14" fill="#d9e6f2" stroke="#142c44" stroke-width="2"/>
+<text x="440" y="315" font-size="19">ESP32</text><text x="440" y="342" font-size="17">MPU6050</text><text x="440" y="369" font-size="14">+Z into page</text>
+<g fill="#e6f3ef" stroke="#167080" stroke-width="3"><circle cx="240" cy="190" r="62"/><circle cx="640" cy="190" r="62"/><circle cx="640" cy="470" r="62"/><circle cx="240" cy="470" r="62"/></g>
+<g font-size="18" font-weight="bold"><text x="240" y="184">M1 FL</text><text x="240" y="212">CW ↻</text><text x="640" y="184">M2 FR</text><text x="640" y="212">CCW ↺</text><text x="640" y="464">M3 RR</text><text x="640" y="492">CW ↻</text><text x="240" y="464">M4 RL</text><text x="240" y="492">CCW ↺</text></g>
+<g font-size="15"><text x="240" y="110">GPIO25 • T+R+P−Y</text><text x="640" y="110">GPIO26 • T−R+P+Y</text><text x="640" y="565">GPIO27 • T−R−P−Y</text><text x="240" y="565">GPIO32 • T+R−P+Y</text></g>
+<path d="M540 330H760" stroke="#167080" stroke-width="3" marker-end="url(#arrow)"/><text x="756" y="315" font-size="17">+Y right</text>
+<text x="440" y="604" font-size="17">Positive roll: right wing down • Positive pitch: nose up • Positive yaw: CW</text><text x="440" y="635" font-size="15">Provisional hardware layout — verify motor order, spin and axes with propellers removed</text>
+</g></svg>

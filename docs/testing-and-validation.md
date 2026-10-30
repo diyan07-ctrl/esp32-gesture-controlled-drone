@@ -1,0 +1,19 @@
+# Stage-gated testing and validation
+
+Stop at the **first failed stage**. Record date, operator, revision, build target, exact hardware, instruments, expected/observed results and evidence path in [test record](test-record-template.md). Never replace a measurement with a checkbox inferred from compilation.
+
+| Stage | Procedure and acceptance evidence | Current gate |
+|---|---|---|
+| 1 Static documentation | Run repository checker; reconcile tables, diagrams, GPIO constraints, BOM and mixer. Close component identity and power assumptions before physical assembly. Render diagrams and inspect text/arrows. | Software checks can run; physical identity and renderer review pending |
+| 2 Compilation | Build both separate targets with pinned PlatformIO/framework; retain full log including warnings and memory summary. Any build error fails. | See actual results |
+| 3 Unit logic | Compile/run shared C++ tests, Python calculator/parser tests. Cover mapping, packet mutation/ranges/session/sequence wrap, timeout wrap, all arming prerequisites, latch, finite math, PID limits and mixer signs. | See actual results; tests are not hardware validation |
+| 4 Sensors | USB/current-limited power; test both modules separately, identity/config, 1000-sample bias, six-face accel, axis signs, timestamps, vibration/noise and temperature drift. No unexplained I2C errors, clipping or timing faults. Record noise spectra and calibration limits before acceptance. | Not run |
+| 5 Communication | Provision private peers; log command/ack rate, age, gap estimates, rejects and send errors. Exercise reset while armed in logic harness, channel mismatch, interference, invalid packets, replay and loss. Verify timeout after last accepted timestamp and no auto-rearm. Use timestamp/logic instrumentation to measure end-to-end latency, not MAC success. | Not run |
+| 6 Motor outputs | **Props removed**, appropriate restrained fixture and verified ESC manual. First scope logic outputs disconnected from ESC; verify boot has no PWM, permitted frame/endpoints, no-signal and reset behavior. Then power one identified ESC at a time with current limiting appropriate to test. Confirm order and spin physically. Command is not RPM. | Blocked by exact ESC and closed output gates |
+| 7 Integrated bench | Check rails/transients, return paths, temperatures, sensor signs and mixer corrections; inject stale command, missing sensor, bad ADC, kill/open wire, watchdog stall and overrun. Observe motor signal timing directly. | Not run |
+| 8 Simulation/HIL | Run toy model for numeric regression; develop measured six-DOF plant before stability claims. HIL with actuator power disconnected must preserve fault behavior and scheduling. | Toy model written; not evidence of flight |
+| 9 Controlled readiness | Review every preceding record, correct props/directions/retention, CG, thrust reserve, controller tuning, validated airborne link/battery policy, battery handling, local legal/site permissions, competent supervision, exclusion area and emergency plan. | NOT READY; no flight approval |
+
+Target software loop: 4 ms; test wake jitter target ≤0.5 ms; intervals outside 2–6 ms and execution ≥4 ms fault. Verify watchdog reset within configured 1 s in a safe logic harness. Verify last accepted command age >200 ms triggers latch with no later output write restoring PWM. Deliberately invalid packets must not refresh age. Test micros/millis and sequence wrap. Observe radio-to-output timing with Wi-Fi/serial load.
+
+No exposed propeller bench testing. A guarded thrust rig is a separate controlled test system, not an ordinary bench assembly. Before any outdoor operation, independently verify current applicable national/local aviation rules and site restrictions using official authorities; this repository provides no legal clearance.

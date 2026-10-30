@@ -1,0 +1,13 @@
+flowchart TB
+  B["3S 2200 mAh; 11.1 V nominal / 12.6 V full; C unknown"] ==>|"Main isolation; rating awaits current budget"| P["Rated PDB or soldered harness"]
+  P ==>|"Four separate high-current pairs"| E["ESC1 / ESC2 / ESC3 / ESC4"]
+  E ==>|"Three phases per motor"| M["Four A2212 1000 KV owner-reported"]
+  P ==>|"Separate low-current branch"| BU["Documented buck; proposed 5 V / 2 A"]
+  BU ==>|"Single verified 5 V input source"| ESP["Drone ESP32 DevKit"]
+  ESP ==>|"Verified 3.3 V rail"| IMU["Onboard MPU6050"]
+  P -->|"47k / 10k divider; filtered; protection review"| ADC["ADC1 GPIO34"]
+  G["Star ground; motor current kept out of sensor return"] --- P
+  G --- BU
+  G --- ESP
+  GB["Independent USB bank 5 V"] ==> GL["Glove ESP32 + 3.3 V MPU"]
+  E -.->|"Any BEC positive: individually insulated, NOT paralleled"| ISO["Unused BEC outputs"]

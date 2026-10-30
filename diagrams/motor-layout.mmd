@@ -1,0 +1,8 @@
+flowchart TB
+  F["FRONT +X; pitch positive nose-up"] --> C["F450 center; ESP32 + MPU"]
+  M1["M1 FRONT-LEFT CW; GPIO25; T+R+P-Y"] --- C
+  M2["M2 FRONT-RIGHT CCW; GPIO26; T-R+P+Y"] --- C
+  C --- M4["M4 REAR-LEFT CCW; GPIO32; T+R-P+Y"]
+  C --- M3["M3 REAR-RIGHT CW; GPIO27; T-R-P-Y"]
+  C --> REAR["REAR -X"]
+  AX["Top view; +Y right; +Z down; roll positive right-wing-down; yaw positive CW"] --- C

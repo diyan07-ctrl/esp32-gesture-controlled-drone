@@ -1,0 +1,14 @@
+Board,Function,GPIO,Direction,Voltage,Status
+Both,I2C SDA,21,bidirectional,3.3V,Provisional board verification required
+Both,I2C SCL,22,output,3.3V,Provisional board verification required
+Both,Status LED,23,output,3.3V,Optional via 1k resistor
+Glove,Arm active low,18,input pullup,3.3V,Switch to ground
+Glove,Enable active low,19,input pullup,3.3V,Switch to ground
+Glove,Throttle,34,ADC1 input,0-2.5V,10k pot;1k series;100nF;100k pulldown
+Glove,Yaw,35,ADC1 input,0-2.5V,Centered pot;1k series;100nF;100k pulldown
+Drone,M1 ESC1,25,output,3.3V,220R series and 10k pulldown;protocol unverified
+Drone,M2 ESC2,26,output,3.3V,220R series and 10k pulldown;protocol unverified
+Drone,M3 ESC3,27,output,3.3V,220R series and 10k pulldown;protocol unverified
+Drone,M4 ESC4,32,output,3.3V,220R series and 10k pulldown;protocol unverified
+Drone,Pack voltage,34,ADC1 input,2.211V at12.6V,47k/10k divider;protection review required
+Drone,Run permit closed low,19,input pullup,3.3V,Open inhibits

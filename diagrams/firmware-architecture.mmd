@@ -1,0 +1,19 @@
+flowchart LR
+  IMU["MPU data-ready poll + burst; bounded I2C"] --> CAL["Stationary gyro calibration"]
+  CAL --> FIL["DLPF + gravity validity gate"]
+  FIL --> EST["Complementary Euler estimator"]
+  CB["Wi-Fi callback: peer and length check"] --> Q["Latest-packet mailbox"]
+  Q --> V["CRC/version/range/session/sequence validation"]
+  V --> CMD["Pilot angle / yaw-rate / collective commands"]
+  CMD --> PID["Outer angle P + inner rate PID"]
+  EST --> PID
+  PID --> MIX["Quad-X mix; finite check and clamp"]
+  MIX --> OUT["Hardware PWM; attach only after verified arming"]
+  SAFE["Safety supervisor + battery + local permit"] --> PID
+  SAFE --> OUT
+  V --> SAFE
+  EST --> SAFE
+  TIME["Interval/execution deadlines + task watchdog"] --> SAFE
+  SAFE --> TEL["Snapshot queue; low-priority serial + status"]
+  EST --> TEL
+  MIX --> TEL

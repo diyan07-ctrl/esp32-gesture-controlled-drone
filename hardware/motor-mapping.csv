@@ -1,0 +1,5 @@
+Motor,Location,ESC,GPIO,Rotation top view,Throttle,Roll,Pitch,Yaw
+M1,front-left,ESC1,25,CW,1,1,1,-1
+M2,front-right,ESC2,26,CCW,1,-1,1,1
+M3,rear-right,ESC3,27,CW,1,-1,-1,-1
+M4,rear-left,ESC4,32,CCW,1,1,-1,1

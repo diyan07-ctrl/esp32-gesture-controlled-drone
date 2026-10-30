@@ -1,0 +1,13 @@
+.pio/
+.cache/
+.venv/
+node_modules/
+build/
+*.bin
+*.elf
+*.map
+*.log
+__pycache__/
+local_secrets.h
+.env
+dist/

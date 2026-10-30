@@ -1,0 +1,16 @@
+flowchart LR
+  GI["Glove MPU6050"] --> GE["Glove ESP32: tilt mapping"]
+  GE -->|"ESP-NOW commands 50 Hz"| DE["Drone ESP32"]
+  DE -->|"Status 10 Hz"| GE
+  DI["Drone MPU6050"] --> FC["Onboard estimator and PID 250 Hz"]
+  DE --> FC
+  FC --> MX["Quad-X mixer"]
+  MX -->|"3.3 V candidate PWM; gated"| ES["ESC1 / ESC2 / ESC3 / ESC4"]
+  ES --> MO["M1 / M2 / M3 / M4"]
+  B["3S LiPo 12.6 V max"] ==>|"HIGH CURRENT"| PD["Rated PDB or harness"]
+  PD ==> ES
+  PD ==>|"battery input"| BU["5 V buck; proposed 2 A"]
+  BU ==>|"regulated"| DE
+  DE ==>|"verified 3.3 V rail"| DI
+  GB["Independent protected USB bank"] ==> GE
+  GE ==> GI

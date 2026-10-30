@@ -1,0 +1,25 @@
+flowchart TB
+  B["3S battery; isolation connector"] ==>|"Rated high-current pair"| P["Verified PDB / harness"]
+  P ==> E1["ESC1: BEC+ isolated"]
+  P ==> E2["ESC2: BEC+ isolated"]
+  P ==> E3["ESC3: BEC+ isolated"]
+  P ==> E4["ESC4: BEC+ isolated"]
+  E1 ==> M1["M1 FL CW"]
+  E2 ==> M2["M2 FR CCW"]
+  E3 ==> M3["M3 RR CW"]
+  E4 ==> M4["M4 RL CCW"]
+  P ==> BU["Buck: battery to regulated 5 V"]
+  BU ==>|"Verified board input; no simultaneous USB"| D["Drone ESP32"]
+  D ==>|"Verified 3.3 V + GND"| I["MPU6050; AD0 GND"]
+  D -->|"21 SDA / 22 SCL; 3V3 pullups"| I
+  D -->|"25 signal + reference; 220R and 10k pulldown"| E1
+  D -->|"26 signal + reference; 220R and 10k pulldown"| E2
+  D -->|"27 signal + reference; 220R and 10k pulldown"| E3
+  D -->|"32 signal + reference; 220R and 10k pulldown"| E4
+  P --> DIV["47k upper / 10k lower; 100nF to GND"]
+  DIV -->|"1k series; input protection review required"| ADC["GPIO34 ADC1"]
+  ADC --- D
+  K["Normally closed run permit to GND"] -->|"GPIO19; open inhibits"| D
+  D -->|"GPIO23 via 1k"| L["LED to GND"]
+  G["Distribution star GND; separate motor returns and electronics reference"] --- D
+  G --- BU
