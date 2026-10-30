@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include <WiFi.h>
 #include <esp_task_wdt.h>
 #include "configuration/config.h"
 #include "imu.h"
