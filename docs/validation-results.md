@@ -30,6 +30,7 @@ Executed: python tools/run_host_tests.py --zig .venv/Lib/site-packages/ziglang/z
 | closed_loop | PASS, 62,727 assumed-plant steps/saturation cases; three-axis signs, both directions, convergence and bounds |
 | Repository checker | PASS: local links/fences, default gates, motor GPIO/sign/CSV/SVG consistency, task output/receive contracts, pinned targets/CI, BOM IDs, secret patterns and generated-file checks |
 | git diff --check | PASS: no whitespace errors |
+| Serial-port inventory | EXECUTED read-only: python -m serial.tools.list_ports returned "no ports found"; no port opened and no firmware uploaded |
 
 Total native C++ unit assertions: 4,632; mocked integration assertions: 501. Counts are assertions/steps, not independent hardware test cases. Simulation omits real inertia/thrust/ESC latency/aerodynamics/vibration/sag/coupling and cannot establish F450 stability. Host tests do not execute real RF, GPIO, I2C, ADC, RMT, LEDC, NVS flash or FreeRTOS scheduling. Hardware adapters compile and IMU/NVS behaviors are exercised through mocks; hardware behavior remains unverified.
 
@@ -47,4 +48,8 @@ Known issues: immediate-cut airborne crash risk; no independent actuator watchdo
 
 ## GitHub publication
 
-Target: [diyan07-ctrl/esp32-gesture-controlled-drone](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone), existing main branch. Authenticated Git access is available. Final commit hashes, push and actual CI outcome are recorded after publication; until then this paragraph is not a claim of push/CI success.
+Implementation commit **812d5b681982f47c41bf00dd840ef1d9f8c73f0a** was committed and successfully pushed to the existing main branch of [diyan07-ctrl/esp32-gesture-controlled-drone](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone), advancing 6c7cf0b without force push or permission/visibility changes. No unrelated working-tree changes, generated binaries, pairing headers or credentials were committed. The implementation contains 90 tracked files; the default-output and secret-pattern repository checks passed.
+
+[Actual CI run 41620143407](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/41620143407) completed successfully on that exact implementation SHA at 2026-11-03 10:33:41 UTC. All four jobs passed: logic, firmware (glove), firmware (drone), firmware (motor_test). The Linux/GCC logic results matched the Windows/Zig assertion counts above. CI compiler log inspection found no warning: or error: diagnostics. CI static RAM matched the local table; CI flash was glove 768,845 bytes, drone 760,301 bytes, motor_test 271,793 bytes. Small host-build differences do not change runtime validation status.
+
+This final documentation update records those observed outcomes. The source commit and CI link above identify the tested engineering implementation independently of the later report-only commit. Hardware/flight validation remains pending; output gates remain disabled.
