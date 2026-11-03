@@ -1,69 +1,48 @@
-# Provisional connection tables
+# Wiring and confirmed hardware
 
-**Do not assemble solely from these tables.** GPIO numbers below are chip GPIOs, not header positions. They are checked against the Espressif reference DevKitC pin constraints, but owned PCB variants have not been identified. Confirm each board's schematic/header before wiring. Neither ESP32 nor IMU I/O is assumed 5 V tolerant. Do not use GPIO6–11 (flash), GPIO0/2/5/12/15 (straps), UART0 during programming, or GPIO34–39 as outputs. ADC1 is used because Wi-Fi conflicts with ADC2 acquisition.
+Owner reports on 2026-11-03 establish two MPU6500s, two flex sensors, HC-SR04, 3S 2200 mAh 50C, 1045 props, A2212 1000 KV motors and 30 A ESCs. Exact breakout, ESC and regulator models remain unknown. GPIO numbers below are chip GPIOs, not header positions. No actual electrical measurements were performed here.
+
+## Both boards
+
+| Function | GPIO / connection | Constraint |
+|---|---|---|
+| MPU6500 SDA / SCL | 21 / 22 | Pullups to 3.3 V only; 400 kHz candidate |
+| MPU6500 VCC / GND | Verified sensor-compatible 3.3 V / common GND | Inspect breakout regulator/pullups; no assumed 5 V tolerance |
+| MPU6500 AD0 | GND | Provisional address 0x68; identity register must read 0x70 |
+| MPU6500 CS | High to sensor logic supply where exposed | I2C mode; inspect actual breakout |
+| IMU mounting | Raw X forward, Y left, Z up | Firmware transforms into FRD body rates and gravity proxy |
+| Optional LED | 23 via series resistor | Not flight-state evidence |
+
+GPIO6–11 are flash pins; avoid strapping pins for added functions. GPIO34/35 are input-only ADC1 and have no internal pull resistors. No propulsion current may flow through sensor wiring or ESP32 ground leads.
 
 ## Glove
 
-| Component | Component pin | ESP32 GPIO | Power source | Voltage | Notes |
-|---|---|---|---|---|---|
-| DevKit | USB or verified 5V input | — | Protected USB power bank | 5 V | Exactly one board supply; no unregulated cell |
-| MPU6050 | VCC | — | Verified sensor-compatible 3V3 rail | 3.3 V | Check breakout regulator dropout and pullups |
-| MPU6050 | GND | GND | Glove return | 0 V | Common signal reference |
-| MPU6050 | SDA | 21 | Pullup to 3V3 | 3.3 V logic | Short wires; inspect module pullups |
-| MPU6050 | SCL | 22 | Pullup to 3V3 | 3.3 V logic | 400 kHz candidate; measure rise time |
-| MPU6050 | AD0 | GND | — | 0 V | Address 0x68; verify breakout |
-| MPU6050 | INT, XDA, XCL | — | — | — | Not connected; data-ready register polled |
-| Arm switch | Contact | 18 | Internal pullup | 3.3 V logic | Active low; other terminal GND |
-| Hold-to-enable switch | Contact | 19 | Internal pullup | 3.3 V logic | Active low; open means inhibited |
-| Throttle potentiometer | Wiper | 34 ADC1 | External 2.5 V reference | 0–2.5 V | 10 kΩ pot across reference/GND, 1 kΩ wiper series, 100 nF ADC-to-GND; 100 kΩ pulldown; input-only pin |
-| Yaw potentiometer | Wiper | 35 ADC1 | External 2.5 V reference | 0–2.5 V | Same conditioning; center 1.25 V; 100 kΩ pulldown |
-| Status LED | Anode | 23 | GPIO | 3.3 V | 1 kΩ series, cathode GND; indicates command permission |
+| Function | GPIO | Hardware/status |
+|---|---:|---|
+| Flex sensor 1 ADC | 34 | Resistive divider powered from 3.3 V |
+| Flex sensor 2 ADC | 35 | Separate resistive divider powered from 3.3 V |
+| Optional arm switch | 18 | Active low to GND; disabled by default |
+| Optional hold-to-enable | 19 | Active low to GND; disabled by default |
 
-Single IMU yaw integration is unsuitable as a reliable absolute yaw input. These separate physical controls are mandatory for this implementation. Potentiometer faults can appear as valid inputs; dual-channel plausibility is an unresolved improvement.
+For each flex sensor, connect 3.3 V → flex resistance → ADC node → fixed resistor → GND, with suitable ADC series resistance and filtering. Select the fixed resistor using the measured sensor resistance span and ADC safe range. No sensor resistance, open/bent count or usable endpoint is invented here. Keep the ADC within its characterized range, never above 3.3 V. Capture both endpoints through serial and confirm polarity; inverted endpoint order is supported. A broken wire often produces a rail reading, but a stuck plausible value cannot always be detected.
+
+Power the glove from a verified regulated source such as its USB input. The two boards have independent supply arrangements; ESP-NOW does not require a wired ground between glove and drone.
 
 ## Drone
 
-| Component | Component pin | ESP32 GPIO | Power source | Voltage | Notes |
-|---|---|---|---|---|---|
-| Battery | Positive connector | — | 3S LiPo | 9–12.6 V operating example | Exact low limit is pack/load dependent; main isolation by connector |
-| Battery | Negative connector | — | Return | 0 V | Distribution star return |
-| PDB/harness | IN+, IN− | — | Battery | Up to 12.6 V | Rated for measured total continuous/peak current |
-| Buck | VIN+, VIN− | — | Distribution | Up to 12.6 V + transients | Select documented input margin and cooling |
-| Buck | OUT+, OUT− | — | Regulated | 5 V, proposed 2 A | Verify output before attaching board; USB disconnected |
-| DevKit | Verified 5V and GND | — | Buck | 5 V | Exact board must support this input; never 3S into board |
-| MPU6050 | VCC, GND | — | Board 3V3/GND | 3.3 V | Breakout rail compatibility must be measured |
-| MPU6050 | SDA, SCL | 21,22 | 3V3 pullups | 3.3 V logic | Same constraints as glove |
-| MPU6050 | AD0 | GND | — | 0 V | 0x68 |
-| MPU6050 | INT/XDA/XCL | — | — | — | Unconnected |
-| ESC1/2/3/4 | Signal | 25/26/27/32 | PWM peripheral | 3.3 V logic | Each via 220 Ω series; 10 kΩ signal-to-GND pulldown; confirm ESC threshold |
-| ESC1/2/3/4 | Signal GND | GND reference | Low-current reference | 0 V | Verify connector pinout; route beside each signal |
-| Battery divider | Sense midpoint | 34 ADC1 | Battery via 47 kΩ upper, 10 kΩ lower | 2.211 V at 12.6 V | 1% resistors, 100 nF lower resistor bypass; 1 kΩ ADC series |
-| Local run-permit / emergency switch | Contact | 19 | Internal pullup | 3.3 V logic | Closed to GND permits; opening or broken wire inhibits/latches when armed |
-| Status LED | Anode | 23 | GPIO | 3.3 V | 1 kΩ series then LED to GND |
-| Optional buzzer | Driver control | — | Regulated rail | Match selected buzzer | Not implemented; transistor required if load exceeds GPIO rating |
-| Optional current sensor | Analog/digital output | — | Model dependent | Must be 3.3 V compatible | No pin reserved or firmware driver; select after current range verified |
-| Optional local arm switch | — | — | — | — | Not fitted; physical run permit plus glove arm used |
+| Function | GPIO | Owner-reported motor location / status |
+|---|---:|---|
+| M1 / ESC1 signal | 25 | Front-right, CCW viewed from above |
+| M2 / ESC2 signal | 26 | Front-left, CW |
+| M3 / ESC3 signal | 32 | Rear-left, CCW |
+| M4 / ESC4 signal | 33 | Rear-right, CW |
+| HC-SR04 Trigger | 16 | Proposed assignment, confirm actual wire |
+| HC-SR04 Echo | 17 | Proposed; **5 V level protection mandatory** |
+| Optional pack ADC | 34 | Disabled unless divider hardware is fitted and verified |
+| Optional run-permit switch | 19 | Active low; disabled until installed |
 
-## ESC power and phases
+HC-SR04: VCC from regulated 5 V; GND common with ESP32; Echo through a divider/level shifter. A candidate divider is 10 kΩ from Echo to ADC-side node and 15 kΩ node to GND, giving 3.0 V at a 5.0 V Echo. Check tolerance, real supply maximum, logic thresholds and edge timing. Verify that the actual module recognizes a 3.3 V Trigger, or level-shift Trigger too. Do not connect Echo directly. Acquisition remains disabled with ultrasonicVerified=false until the interface and pins are checked. No reliable range is implied by the software acceptance interval of 0.02–4 m.
 
-| ESC | Positive battery input | Negative input | Signal GPIO | Signal ground | BEC | Motor phases |
-|---|---|---|---:|---|---|---|
-| ESC1 | PDB branch + | PDB branch − | 25 | Electronics reference GND | Unknown; output isolated | M1 front-left |
-| ESC2 | PDB branch + | PDB branch − | 26 | Electronics reference GND | Unknown; output isolated | M2 front-right |
-| ESC3 | PDB branch + | PDB branch − | 27 | Electronics reference GND | Unknown; output isolated | M3 rear-right |
-| ESC4 | PDB branch + | PDB branch − | 32 | Electronics reference GND | Unknown; output isolated | M4 rear-left |
+Optional battery divider: candidate 47 kΩ upper / 10 kΩ lower, 100 nF bypass and suitable series/protection circuitry. Ratio 5.7 gives approximately 2.211 V at 12.6 V. Verify back-power protection and calibrate with a DMM before batteryMonitorInstalled=true. Low/critical thresholds are provisional loaded-pack values.
 
-Each ESC's three phase wires connect only to its assigned motor. Swap two phases, with power removed, to reverse a conventional sensorless motor. Verify exact ESC instructions. Wire color and three-pin connector order are not standardized. Identify power, signal, GND and BEC before insertion. If a BEC exists, individually insulate its unused positive lead; retain the verified signal-ground connection. Never parallel unknown BEC outputs. Do not interrupt a presumed BEC lead until verified.
-
-## Power distribution
-
-| Path | Voltage | Current requirement | Physical routing |
-|---|---|---|---|
-| Battery → PDB | Up to 12.6 V + transients | Sum of measured motor currents + regulator input | High-current paired leads, short star branches |
-| PDB → each ESC | Battery rail | Actual maximum motor/prop current + derating | Separate from sensor wiring |
-| PDB → buck | Battery rail | Output power/(input voltage × efficiency) | Separate fused/protected electronics branch where suitable |
-| Buck → DevKit | 5 V | Measured load + transient margin; proposed 2 A regulator | Low-current paired supply |
-| DevKit → IMU | Verified 3.3 V | Sensor plus breakout load | Short quiet branch |
-| Glove bank → glove | 5 V | Measured glove peak; provisional 1 A source | Electrically independent from drone |
-
-No propulsion current through ESP32 grounds, breadboards or jumper wires. Buck return, divider bottom, IMU GND and signal GND share an electronics reference connected to distribution ground without carrying motor branch current.
+All ESC signal grounds must share the drone electronics reference. Candidate series/pulldown signal resistors need validation against the exact ESC input. Isolate unused BEC positive leads individually; never parallel them. Use a verified regulated board input with USB/external-source interaction checked, never direct 3S. The F450 PDB carries battery-to-ESC power; route motor returns separately from the electronics reference. Inspect connector polarity and ESC startup/no-signal behavior before applying propulsion power.

@@ -1,11 +1,21 @@
-# Glove command mapping
+# Calibrated provisional gesture mapping
 
-A complementary filter estimates tilt. Glove neutral is captured while arm and enable switches are released, throttle is physically below 2%, and sensor data are healthy. Neutral may update only in that condition. Hold hand in the intended neutral orientation until controls are enabled.
+Both flex endpoints must be measured; invalid/missing/rail endpoints inhibit commands. The ADC signal is normalized by (raw-open)/(bent-open), supporting either wiring polarity, then first-order filtered with 40 ms time constant. A normalized span of at least 100 counts is required as an initial plausibility check, not proof of adequate noise margin.
 
-Relative roll/pitch divided by 30° is clamped to ±1 and passed through an 8% deadband, with linear rescaling outside it. Drone maps ±1 to ±20° angle targets. Positive glove roll means right tilt; positive pitch means nose-up. Confirm mounting and sign on the bench. This is direct calibrated tilt mapping, not gesture classification.
+GestureConfig in firmware/common/gesture.h is the mapping configuration. Defaults are provisional normalized thresholds: bend-on .75, bend-off .55, tilt-on 12°, tilt-off 8°, yaw-on 35°/s and yaw-off 20°/s. Tune these with actual flex and IMU data. Debounce is 150 ms; the dedicated arm gesture requires 1000 ms. Emergency bypasses ordinary gesture debounce after flex filtering. Commands are smoothed with a 100 ms time constant; raw ADC/IMU values never command motor outputs directly.
 
-Yaw comes from a centered 0–2.5 V control, center 1.25 V, mapped through the same deadband to ±60°/s. Throttle uses a separate physical 0–2.5 V potentiometer mapped to 0–1000. Fixed endpoint assumptions must be calibrated against actual analog voltages. The MPU6050 cannot provide drift-free absolute glove yaw.
+| Gesture | Provisional interpretation |
+|---|---|
+| Open fingers, level hand | Neutral; hold existing commanded throttle, zero smoothed directional demand |
+| Open fingers, tilt forward/back | Pitch forward/back; configured maximum 20° |
+| Open fingers, tilt left/right | Roll left/right; dominant tilt axis wins |
+| Open fingers, wrist rotation | Signed gyro Z rate selects yaw-rate direction, maximum 60°/s; rate input avoids absolute-heading drift |
+| Flex 1 bent, flex 2 open | Increase throttle at configurable .15 normalized units/second |
+| Flex 2 bent, flex 1 open | Decrease throttle at the same rate |
+| Both bent, level | Dedicated arm request after 1 s; zero throttle required |
+| Both bent, backward tilt | Dedicated disarm after ordinary debounce |
+| Both bent, forward tilt | Emergency stop, transmitter latch; no normal debounce |
 
-On boot packets are neutral, disabled, throttle zero. A valid current-session status acknowledgment is required, then arm release and physical zero throttle with enable released. Only a subsequent deliberate enable and arm sequence can request arming. Loss of fresh acknowledgments (>300 ms) clears command permission and zero-throttle interlocks. The onboard command timeout is 200 ms. A glove reboot creates a new random session, which the armed drone rejects; old commands expire and failsafe latches.
+After startup/reconnection, open both fingers and hold level to establish neutral permission. Startup IMU calibration requires the level stationary mounting orientation; neutral is not continuously recentered. The mapping then retains arm request until disarm, emergency, invalid sensors or lost permission. Drone arming includes another explicit hold and interlocks; throttle accumulation is suppressed until drone ARMED status arrives. Keep level/open until arming is acknowledged. Link/sensor failures reset throttle and arm state; emergency remains latched across software mapping resets. A drone FAULT/FAILSAFE status also latches transmitter stop. No gesture clears a latched emergency; inspect and reset both systems.
 
-No throttle hold or resume on reconnection. Normal disarm requires arm switch release; enable release invokes link failsafe when armed. Switch debounce is not separately implemented; the 1 s uninterrupted onboard arming hold prevents bounce-induced arming, but bounce can cause nuisance disarm. Potentiometer plausibility/redundancy remains an important limitation.
+Optional legacy switches may be enabled if installed. Glove arm switch then acts as additional permission, and the hold-to-enable input must be low. They are not mandatory additions to the specified two-flex architecture. Glove sensor orientation and gesture ergonomics must be independently validated; false gesture classification remains a major physical-test risk. There is no altitude or heading hold. Test all combinations on the bench before connecting ESC signals.

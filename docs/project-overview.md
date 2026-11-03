@@ -1,3 +1,5 @@
+> Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
+
 # Gesture-Controlled Drone Using ESP32
 
 The project explores a student-built F450 Quad-X aircraft with an ESP32-WROOM-32 as its sole onboard flight-control computer. A second ESP32 and MPU6050 form the wearable pilot interface. ESP-NOW carries pilot commands; the drone independently estimates attitude and stabilizes the aircraft.

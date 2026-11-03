@@ -1,14 +1,16 @@
 Board,Function,GPIO,Direction,Voltage,Status
-Both,I2C SDA,21,bidirectional,3.3V,Provisional board verification required
-Both,I2C SCL,22,output,3.3V,Provisional board verification required
-Both,Status LED,23,output,3.3V,Optional via 1k resistor
-Glove,Arm active low,18,input pullup,3.3V,Switch to ground
-Glove,Enable active low,19,input pullup,3.3V,Switch to ground
-Glove,Throttle,34,ADC1 input,0-2.5V,10k pot;1k series;100nF;100k pulldown
-Glove,Yaw,35,ADC1 input,0-2.5V,Centered pot;1k series;100nF;100k pulldown
-Drone,M1 ESC1,25,output,3.3V,220R series and 10k pulldown;protocol unverified
-Drone,M2 ESC2,26,output,3.3V,220R series and 10k pulldown;protocol unverified
-Drone,M3 ESC3,27,output,3.3V,220R series and 10k pulldown;protocol unverified
-Drone,M4 ESC4,32,output,3.3V,220R series and 10k pulldown;protocol unverified
-Drone,Pack voltage,34,ADC1 input,2.211V at12.6V,47k/10k divider;protection review required
-Drone,Run permit closed low,19,input pullup,3.3V,Open inhibits
+Both,I2C SDA,21,bidirectional,3.3V,Verify breakout pullups
+Both,I2C SCL,22,output,3.3V,400kHz candidate
+Both,Status LED,23,output,3.3V,Optional via series resistor
+Glove,Flex1,34,ADC1 input,0-3.3V,Measured divider endpoints required
+Glove,Flex2,35,ADC1 input,0-3.3V,Measured divider endpoints required
+Glove,Optional arm switch,18,input pullup,3.3V,Disabled by default
+Glove,Optional enable switch,19,input pullup,3.3V,Disabled by default
+Drone,M1 front-right CCW,25,output,3.3V,Owner confirmed; physical verification pending
+Drone,M2 front-left CW,26,output,3.3V,Owner confirmed; physical verification pending
+Drone,M3 rear-left CCW,32,output,3.3V,Owner confirmed; physical verification pending
+Drone,M4 rear-right CW,33,output,3.3V,Owner confirmed; physical verification pending
+Drone,HC-SR04 Trigger,16,output,3.3V,Proposed pin; verify module logic threshold
+Drone,HC-SR04 Echo,17,input,3.3V max,Proposed pin; 5V Echo MUST be level shifted
+Drone,Optional battery divider,34,ADC1 input,2.211V at12.6V,Disabled until fitted and verified
+Drone,Optional local permit,19,input pullup,3.3V,Disabled by default

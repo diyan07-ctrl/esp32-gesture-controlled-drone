@@ -1,3 +1,5 @@
+> Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
+
 # Publication record
 
 Requested owner: diyan07-ctrl. Requested repository: esp32-gesture-controlled-drone, public. Description: Custom gesture-controlled quadcopter using two ESP32-WROOM-32 boards, MPU6050 IMUs, ESP-NOW communication, and a custom onboard flight-control algorithm without a dedicated flight controller.

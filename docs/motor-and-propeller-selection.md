@@ -1,6 +1,6 @@
 # Motor and propeller selection
 
-Owned motors: A2212, 1000 KV as reported by owner. All other ratings remain unidentified. “A2212” does not establish a manufacturer's winding, shaft, bearings, continuous current, maximum watts or supported cells. See [audit evidence](hardware-feasibility-audit.md).
+Owned motors: A2212, 1000 KV; the owner specifies 1045 propellers as of 2026-11-03. Exact manufacturers and measured compatibility remain unidentified. “A2212” does not establish a manufacturer's winding, shaft, bearings, continuous current, maximum watts or supported cells. See [current wiring/configuration](connection-tables.md).
 
 Do not choose a propeller from F450 arm clearance alone. Obtain maker-specific motor/prop tests at 3S including 12.6 V, continuous current, thrust, RPM, temperature and duration. Match hub bore, adapter, thread retention, CW/CCW blades and frame clearance. Check arm bolt spacing and bolt length against the motor base; bolts must not touch windings. Confirm all four motors are identical.
 

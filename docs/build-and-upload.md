@@ -1,33 +1,41 @@
 # Reproducible build and upload
 
-Install Python 3.12 and PlatformIO Core from its official package. The root project holds two independent targets; no duplicated nested INI files are needed:
-```sh
+Python 3.11+ and PlatformIO Core 6.1.18 were used locally on Windows. CI uses Python 3.12 on Ubuntu. Root platformio.ini retains the existing espressif32@6.9.0 platform, esp32dev 4 MB board and Arduino ESP32 2.0.17 / IDF 4.4.7 APIs. Required Wire, WiFi and Preferences ship with the framework. No external IMU/PID dependency exists.
+
+~~~sh
+python -m venv .venv
+# Activate the virtual environment using your shell's normal command.
 python -m pip install platformio==6.1.18
-pio run -e glove
-pio run -e drone
-```
+python -m platformio run -e glove -e drone -e motor_test
+python -m platformio pkg list -e drone
+~~~
 
-Pinned platform: espressif32 6.9.0; board: esp32dev (generic classic ESP32 Dev Module, provisional until PCB identification); framework Arduino ESP32 2.0.17 / IDF 4.4.7 from that platform. No third-party IMU/fusion/PID packages. See [PlatformIO release](https://github.com/platformio/platform-espressif32/releases/tag/v6.9.0) and [Arduino release](https://github.com/espressif/arduino-esp32/releases/tag/2.0.17). Do not upgrade Arduino API versions without testing callback, watchdog and LEDC changes. Platform pinning constrains dependencies; preserve actual package list with build records.
+The generic esp32dev board describes classic ESP32, 240 MHz, 4 MB flash; verify exact DevKit V1 pinout/regulator/USB circuit. No architecture migration is needed. Do not upgrade to Arduino 3.x without adapting LEDC, ESP-NOW callbacks and watchdog APIs and retesting.
 
-Keep props off and ESC power disconnected. Confirm target board and USB port, then:
-```sh
-pio run -e glove -t upload --upload-port COM5
-pio run -e drone -t upload --upload-port COM6
-pio device monitor -p COM6 -b 115200
-pio pkg list -e drone
-```
-COM5/COM6 are examples, not detected devices. On Linux use actual /dev paths. Do not upload to an unidentified connected device. Arduino serial auto-reset behavior and external supply isolation depend on board variant.
+Default pairing and motor outputs are disabled. [Provision private peers](communication-protocol.md), then rebuild both endpoints. Never commit local_secrets.h or publish provisioned firmware binaries.
 
-Default pairing is disabled. Provide the ignored local header as described in [protocol](communication-protocol.md) for encrypted link tests. All output verification flags remain false until [gate](output-enablement.md) is satisfied.
+Props removed, propulsion disconnected, correct target/port identified:
 
-Host tests (GCC C++17, Node22+, Python3.12):
-```sh
-mkdir build
-g++ -std=c++17 -Wall -Wextra -Werror -Wno-misleading-indentation -pedantic -I firmware/common tests/unit/core_tests.cpp -o build/core_tests
-./build/core_tests
-python -m unittest discover -s tests/unit -p test_tools.py -v
+~~~sh
+pio run -e drone -t upload --upload-port COM9
+pio device monitor -p COM9 -b 115200
+pio run -e glove -t upload --upload-port YOUR_GLOVE_PORT
+~~~
+
+COM9/4 MB were owner-reported prior detection; no upload or current port/hardware detection occurred in this session. Identify the glove port separately. USB/external power isolation must match the actual board circuit.
+
+Native GCC C++17 tests, Python and Node:
+
+~~~sh
+python tools/run_host_tests.py
 node tools/check_repository.mjs
-g++ -std=c++17 -I firmware/common simulation/tests/roll_model.cpp -o build/roll_model
-./build/roll_model
-```
-On Windows GCC creates .exe; use build/core_tests.exe. Both firmware builds and the executable tests have now passed in GitHub Actions; see docs/validation-results.md for the recorded run and toolchain versions. Local tool availability varies. A written workflow alone is not a pass; inspect the actual run for the revision being tested.
+~~~
+
+Windows alternative used here:
+
+~~~sh
+python -m pip install ziglang==0.13.0
+python tools/run_host_tests.py --zig .venv/Lib/site-packages/ziglang/zig.exe
+~~~
+
+The runner compiles with warnings-as-errors for project C++, runs all unit/integration/simulation executables and Python utility tests. Initial Zig runtime bootstrap emitted libunwind dllexport warnings from its own bundled sources; these are separate from application compile diagnostics. Current actual build/test sizes and results appear in [validation-results](validation-results.md); runtime stack/heap, RF latency and jitter are unmeasured.

@@ -6,7 +6,7 @@ import {execFileSync} from 'node:child_process';
 // Dependency-free ZIP (stored entries); source snapshots never include .git or keys.
 const root=process.cwd();
 execFileSync(process.execPath,['tools/check_repository.mjs'],{stdio:'inherit'});
-const excluded=new Set(['.git','.cache','.venv','.pio','node_modules','build','dist']);
+const excluded=new Set(['.git','.cache','.venv','.pio','node_modules','build','dist','__pycache__']);
 function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>excluded.has(e.name)?[]:e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);}
 const files=walk(root).sort();
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');

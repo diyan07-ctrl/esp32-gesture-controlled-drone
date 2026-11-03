@@ -1,3 +1,5 @@
+> Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
+
 # Engineering roadmap
 
 | Milestone | Deliverables and exit evidence | Status |

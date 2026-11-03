@@ -1,28 +1,50 @@
-# Validation results — 2026-10-30
+# Validation results — 2026-11-03
 
-This record distinguishes performed checks from prepared tests. No hardware was physically tested.
+All results below were actually executed locally against this implementation. Hardware results are deliberately separate. The earlier 2026-10-30 tests described a different MPU6050/potentiometer baseline.
 
-| Check | Result | Evidence/limitation |
-|---|---|---|
-| Hardware feasibility review | Complete as provisional audit | Exact ESC, PCB variants, motor maker, prop data, pack C and mass absent |
-| Earlier local toolchain preparation | Historically blocked | Initial sandbox denied Python download/local tool access; remote CI subsequently executed the real builds/tests |
-| Glove firmware compile | PASS | CI run 41005573875 on e186721; static RAM 25,988 bytes, flash 312,137 bytes; these are build estimates, not runtime measurements |
-| Drone firmware compile | PASS | Same CI run; static RAM 25,900 bytes, flash 314,905 bytes; runtime heap/stack/jitter still unmeasured |
-| Shared C++ unit tests | PASS: 1,537 assertions | Actual compiled shared logic executed in CI |
-| Python utility tests | PASS: 4 tests | Python 3.12.15 in CI; battery/divider/parser and invalid-input cases |
-| Toy simulation | PASS: finite bounded numeric regression | Actual C++ roll model executed; final rate 3.61019 deg/s, angle 20.2055 deg under assumed plant. Not flight-stability evidence |
-| Repository static checks | PASS: 416 assertions across 73 source files at publication | Actual Node execution; local Markdown links, motor mapping, GPIO/default gates, CI commands, BOM IDs, secret-pattern scan and basic Mermaid structure checked. Later runs report their current counts. Not exhaustive secret detection or visual rendering |
-| Mermaid visual rendering | NOT RUN | Renderer unavailable; editable sources and motor SVG supplied |
-| CI | PASS | Both firmware jobs and logic job succeeded in run 41005573875; see links below for current revision |
-| Sensor/RF/ESC/bench/HIL/flight | NOT RUN | Physical hardware/instruments unavailable |
-| GitHub publication | PASS | gh authenticated as diyan07-ctrl; repository created PUBLIC, source committed and pushed; initial 73 remote paths/blob hashes matched local |
-| Anonymous public access | PASS | Repository and raw README both returned HTTP 200 without authorization headers |
-| Engineering issue tracking | PASS | Issues #1 hardware/power, #2 airborne failsafe, #3 physical timing/sensor/controller evidence created |
+## Firmware builds
 
-Evidence: [successful run on e186721](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/41005573875), [current workflow runs](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/workflows/firmware-ci.yml), [public source](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone).
+Executed: python -m platformio run -e glove -e drone -e motor_test. All three returned success; the final log contained no compiler warning: or error: diagnostics.
 
-Build environment: Ubuntu 24.04 hosted runner, PlatformIO Core 6.1.18, Espressif32 platform 6.9.0, framework-arduinoespressif32 3.20017.241212+sha.dcc1105b (Arduino 2.0.17), Xtensa toolchain 8.4.0+2021r2-patch5. Default pairing and output gates stayed disabled. This build therefore does not establish size or behavior of a provisioned, output-enabled aircraft.
+| Target | Result | Static RAM bytes | Flash bytes |
+|---|---|---:|---:|
+| glove | PASS | 44,320 / 327,680 | 768,797 / 1,310,720 |
+| drone | PASS | 43,872 / 327,680 | 760,269 / 1,310,720 |
+| motor_test | PASS | 21,560 / 327,680 | 271,793 / 1,310,720 |
 
-The first CI run failed because framework Wire/WiFi libraries were not discovered through shared headers. A project include_dir and direct app-level framework includes fixed discovery; the subsequent run passed. That successful run reported an ambiguous Wire.requestFrom overload and legacy action-runtime deprecation warnings. A following change selects the exact uint8_t/size_t/bool overload and pins verified current action releases; inspect the corresponding current run for its observed results. No warnings were suppressed to conceal a compiler failure.
+Environment: Windows PowerShell, Python 3.11, PlatformIO Core 6.1.18, Espressif32 6.9.0, Arduino framework 3.20017.241212+sha.dcc1105b (Arduino ESP32 2.0.17), esptool 4.5.1, Xtensa 8.4.0+2021r2-patch5. Default private pairing absent, output gates false, optional ultrasonic/battery/switch paths disabled. Numbers therefore describe default images, not a provisioned output-enabled aircraft. Wi-Fi station mode is initialized for boot MAC diagnostics. Runtime heap/stack, real deadlines and edges remain unmeasured.
 
-Initial connector/browser/filesystem restrictions were resolved for publication through the now-working authenticated CLI and process-scoped exact-path Git trust. Credentials were neither printed nor committed. No physical test or flight approval follows from this recovery.
+## Native tests and simulation
+
+Executed: python tools/run_host_tests.py --zig .venv/Lib/site-packages/ziglang/zig.exe. Exit 0. Project C++ uses C++17, Wall/Wextra/Werror/pedantic. Zig version 0.13.0. Initial bundled runtime bootstrap emitted libunwind dllexport warnings from Zig's own sources; subsequent project builds did not emit C++ diagnostics. The retained legacy Wno-misleading-indentation option is from the original test setup; source is now consistently formatted with clang-format 18.1.8.
+
+| Executable/check | Actual result |
+|---|---|
+| core_tests | PASS, 1,553 assertions: estimator, PID anti-windup, mixer, protocol CRC/ranges/session/sequence/wrap, safety and legacy interlocks |
+| sensor_gesture_tests | PASS, 49 assertions: measured/inverted/invalid flex normalization, filtering, every default gesture, debounce, emergency latch, range timeout/health, PWM boundaries, v2 sensor fields |
+| imu_driver_tests | PASS, 3,013 assertions against mocked I2C: wrong identity, readback mismatch, I2C/data-ready failure, raw conversion, saturation, interrupted level calibration and bias correction |
+| calibration_storage_tests | PASS, 17 mocked serial/NVS assertions: capture, arm lockout, save/load, partial-write invalidation, open failure and erase |
+| pipeline_tests | PASS, 501 mocked command-to-safety-to-PWM integration assertions: valid handshake/arm, corruption, duplicates, loss boundary, emergency, disarm, sensor/timing faults and non-rearm |
+| Python utilities | PASS, 4 unittest cases: battery/divider/parser/invalid inputs |
+| roll_model | PASS, finite bounded toy rate model; final rate 3.61019°/s, angle 20.2055° under assumptions |
+| closed_loop | PASS, 62,727 assumed-plant steps/saturation cases; three-axis signs, both directions, convergence and bounds |
+| Repository checker | PASS: local links/fences, default gates, motor GPIO/sign/CSV/SVG consistency, task output/receive contracts, pinned targets/CI, BOM IDs, secret patterns and generated-file checks |
+| git diff --check | PASS: no whitespace errors |
+
+Total native C++ unit assertions: 4,632; mocked integration assertions: 501. Counts are assertions/steps, not independent hardware test cases. Simulation omits real inertia/thrust/ESC latency/aerodynamics/vibration/sag/coupling and cannot establish F450 stability. Host tests do not execute real RF, GPIO, I2C, ADC, RMT, LEDC, NVS flash or FreeRTOS scheduling. Hardware adapters compile and IMU/NVS behaviors are exercised through mocks; hardware behavior remains unverified.
+
+## Failures encountered and resolved
+
+- Restricted toolchain/GitHub access: reran required commands with approved access. No credentials were printed or committed.
+- Git ownership mismatch during authenticated fetch: used a process-scoped safe.directory exception for this exact workspace, without changing global trust. Fetch confirmed local/remote main were aligned before committing.
+- No native unit/integration/simulation assertion or firmware build failure remained in the final local run. PowerShell wraps unittest stderr as NativeCommandError text when piping; the test runner exited 0 with all four tests OK.
+
+## Not executed / hardware dependencies
+
+All ten ordered hardware stages, actual wireless transport, sensor calibration on devices, PWM/trigger/echo scope traces, loaded power/battery tests, individual motors under new firmware, timing/jitter, guarded thrust, PID tuning and flight: **NOT EXECUTED**, because this session did not access the physical boards/instruments. The owner reports previous COM9 detection, 4 MB flash and individual ESC/motor tests; these are historical, not this firmware's validation evidence. HC-SR04 is confirmed, but proposed GPIO16/17 and Echo protection remain unverified. Motor numbering/GPIO/spins are owner-confirmed, not independently measured.
+
+Known issues: immediate-cut airborne crash risk; no independent actuator watchdog or controlled landing; plausible stuck-sensor faults; yaw drift; no altitude hold; provisional gains/endpoints/thresholds; optional battery monitor disabled. Full details are in [known limitations](known-limitations.md). Before flight follow [hardware procedure](testing-and-validation.md), [calibration](calibration-guide.md), [tuning](flight-control-algorithm.md) and [output gates](output-enablement.md).
+
+## GitHub publication
+
+Target: [diyan07-ctrl/esp32-gesture-controlled-drone](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone), existing main branch. Authenticated Git access is available. Final commit hashes, push and actual CI outcome are recorded after publication; until then this paragraph is not a claim of push/CI success.

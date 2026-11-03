@@ -1,3 +1,5 @@
+> Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
+
 # Robu.in and FlyRobo sourcing check
 
 Checked 2026-10-30 through supplier pages and indexed supplier extracts. This is a dated snapshot, not a reservation or checkout confirmation. Some live requests returned 403/inaccessible or only partial content; stock observations are the displayed supplier state, not independently verified warehouse inventory. Indexed category results can lag product prices (for example the SimonK combo category showed ₹799 while the product extract showed ₹789). Shipping and postcode serviceability have not been checked.

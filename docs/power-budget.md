@@ -2,7 +2,7 @@
 
 Verified by arithmetic from user inventory: nominal pack 11.1 V; capacity 2200 mAh =2.2 Ah; nominal energy E=11.1×2.2=**24.42 Wh**. Standard 3S LiPo full charge is 3×4.2=**12.6 V**; verify chemistry and charger. Actual usable energy depends on load, age and temperature.
 
-Continuous battery capability I=2.2×C A. **C is unknown**. Hypothetical 25C →55 A, 35C →77 A; neither is a claim about this pack. Obtain the actual continuous label rating, not burst rating. A 60 A example needs ≥27.3C with no margin; 25% design allowance gives 75 A or ≥34.1C. Label ratings alone do not prove acceptable voltage sag.
+The owner reports a **50C** marking as of 2026-11-03. The nominal label calculation I=2.2×50=110 A is arithmetic, not measured continuous capability; confirm whether that marking is continuous or burst. A 60 A example needs ≥27.3C with no margin; 25% design allowance gives 75 A or ≥34.1C. Label ratings alone do not prove acceptable voltage sag, connector limits, thermal behavior or propulsion compatibility.
 
 | Item | Assumption | Result | Evidence status |
 |---|---|---|---|

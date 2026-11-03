@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [glove, drone]
+        target: [glove, drone, motor_test]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -27,8 +27,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: node tools/check_repository.mjs
-      - run: mkdir -p build && g++ -std=c++17 -Wall -Wextra -Werror -Wno-misleading-indentation -pedantic -I firmware/common tests/unit/core_tests.cpp -o build/core_tests
-      - run: ./build/core_tests
-      - run: python -m unittest discover -s tests/unit -p test_tools.py -v
-      - run: g++ -std=c++17 -Wall -Wextra -Werror -I firmware/common simulation/tests/roll_model.cpp -o build/roll_model
-      - run: ./build/roll_model
+      - run: python tools/run_host_tests.py

@@ -3,7 +3,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const root=process.cwd();
-const skip=new Set(['.git','.cache','.venv','.pio','node_modules','build','dist']);
+const skip=new Set(['.git','.cache','.venv','.pio','node_modules','build','dist','__pycache__']);
 function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>skip.has(e.name)?[]:e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);}
 const files=walk(root);
 let checks=0;
@@ -27,27 +27,29 @@ for(const file of files){
   check((s.match(/\[/g)||[]).length===(s.match(/\]/g)||[]).length,`unbalanced Mermaid node brackets ${rel}`);
  }
 }
-const config=read('firmware/common/configuration/config.h');
+const compact=s=>s.replace(/\s+/g,'');
+const config=compact(read('firmware/common/configuration/config.h'));
 for(const flag of ['outputsVerified','powerVerified','propulsionVerified','controllerValidated'])check(config.includes(`${flag}=false`),`unsafe default ${flag}`);
-check(config.includes('motors[4]={25,26,27,32}'),'motor GPIO code mismatch');
-check(config.includes('sda=21, scl=22, battery=34'),'sensor/ADC pins mismatch');
+check(config.includes('motors[4]={25,26,32,33}'),'motor GPIO code mismatch');
+check(config.includes('sda=21,scl=22,battery=34'),'sensor/ADC pins mismatch');
 check(config.includes('timeoutMs=200'),'command timeout mismatch');
 const mapping=read('hardware/motor-mapping.csv').trim().split(/\r?\n/).slice(1).map(s=>s.split(','));
-const expected=[['M1','front-left','ESC1','25','CW','1','1','1','-1'],['M2','front-right','ESC2','26','CCW','1','-1','1','1'],['M3','rear-right','ESC3','27','CW','1','-1','-1','-1'],['M4','rear-left','ESC4','32','CCW','1','1','-1','1']];
+const expected=[['M1','front-right','ESC1','25','CCW','1','-1','1','1'],['M2','front-left','ESC2','26','CW','1','1','1','-1'],['M3','rear-left','ESC3','32','CCW','1','1','-1','1'],['M4','rear-right','ESC4','33','CW','1','-1','-1','-1']];
 check(JSON.stringify(mapping)===JSON.stringify(expected),'motor mapping CSV mismatch');
-check(read('firmware/common/control.h').includes('m.motor={t+r+p-y,t-r+p+y,t-r-p-y,t+r-p+y}'),'mixer coefficient mismatch');
+check(config.includes('rollSign[4]={-1,1,1,-1}')&&config.includes('pitchSign[4]={1,1,-1,-1}')&&config.includes('yawSign[4]={1,-1,1,-1}'),'mixer coefficient mismatch');
 const svg=read('diagrams/motor-layout.svg');
-for(const label of ['M1 FL','M2 FR','M3 RR','M4 RL','GPIO25','GPIO26','GPIO27','GPIO32'])check(svg.includes(label),`missing motor SVG label ${label}`);
+for(const label of ['M1 FR','M2 FL','M3 RL','M4 RR','GPIO25','GPIO26','GPIO32','GPIO33'])check(svg.includes(label),`missing motor SVG label ${label}`);
 const main=read('firmware/drone/src/main.cpp');
-const task=main.slice(main.indexOf('void controlTask'),main.indexOf('void setup'));
+const task=compact(main.slice(main.indexOf('void controlTask'),main.indexOf('void setup')));
 check(!/Serial\.|\bdelay\(/.test(task),'blocking serial/delay in control task');
-check(task.includes('rx.accept(incoming.bytes,24,incoming.received'),'packet timestamp must be receive time');
-check(task.includes('esc.write(motors,safety.armed())'),'output must respect supervisor');
-check(read('firmware/common/esc.h').includes('if(!attached)return'),'ESC gate missing');
+check(task.includes('rx.accept(incoming.bytes,incoming.length,incoming.received'),'packet timestamp must be receive time');
+check(task.includes('esc.write(motors,safety.armed()||safety.state==State::ARMING_CHECKS)'),'output must respect supervisor');
+check(compact(read('firmware/common/esc.h')).includes('if(!attached)return'),'ESC gate missing');
 const ini=read('platformio.ini');
 check(ini.includes('espressif32@6.9.0')&&ini.includes('[env:glove]')&&ini.includes('[env:drone]'),'build targets/platform pin missing');
 const ci=read('.github/workflows/firmware-ci.yml');
-check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone]'),'CI must build both apps');
+check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone, motor_test]'),'CI must build both apps and bench image');
+check(ci.includes('python tools/run_host_tests.py'),'CI must execute the complete host suite');
 for(const id of [...read('hardware/bom.csv').matchAll(/^"([A-Z]\d+)"/gm)].map(m=>m[1]))check(read('docs/bill-of-materials.md').includes('|'+id+'|'),`BOM document missing ${id}`);
 check(Math.abs(11.1*2.2-24.42)<1e-9,'energy reference arithmetic');
 check(Math.abs(12.6*10000/57000-2.210526315789474)<1e-9,'divider reference arithmetic');

@@ -1,15 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="660" viewBox="0 0 880 660" role="img" aria-labelledby="title desc">
-<title id="title">Quad-X motor layout, top view</title><desc id="desc">M1 front-left clockwise, M2 front-right counterclockwise, M3 rear-right clockwise, M4 rear-left counterclockwise. Front points up.</desc>
-<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6Z" fill="#167080"/></marker></defs>
-<rect width="880" height="660" fill="#f6f9fc"/><g font-family="Arial,sans-serif" text-anchor="middle" fill="#142c44">
-<text x="440" y="34" font-size="24" font-weight="bold">F450 Quad-X • TOP VIEW</text>
-<path d="M440 135V65" stroke="#167080" stroke-width="4" marker-end="url(#arrow)"/><text x="560" y="95" font-size="18">FRONT +X</text>
-<path d="M240 190L640 470M640 190L240 470" stroke="#667b90" stroke-width="28"/>
-<rect x="365" y="260" width="150" height="140" rx="14" fill="#d9e6f2" stroke="#142c44" stroke-width="2"/>
-<text x="440" y="315" font-size="19">ESP32</text><text x="440" y="342" font-size="17">MPU6050</text><text x="440" y="369" font-size="14">+Z into page</text>
-<g fill="#e6f3ef" stroke="#167080" stroke-width="3"><circle cx="240" cy="190" r="62"/><circle cx="640" cy="190" r="62"/><circle cx="640" cy="470" r="62"/><circle cx="240" cy="470" r="62"/></g>
-<g font-size="18" font-weight="bold"><text x="240" y="184">M1 FL</text><text x="240" y="212">CW ↻</text><text x="640" y="184">M2 FR</text><text x="640" y="212">CCW ↺</text><text x="640" y="464">M3 RR</text><text x="640" y="492">CW ↻</text><text x="240" y="464">M4 RL</text><text x="240" y="492">CCW ↺</text></g>
-<g font-size="15"><text x="240" y="110">GPIO25 • T+R+P−Y</text><text x="640" y="110">GPIO26 • T−R+P+Y</text><text x="640" y="565">GPIO27 • T−R−P−Y</text><text x="240" y="565">GPIO32 • T+R−P+Y</text></g>
-<path d="M540 330H760" stroke="#167080" stroke-width="3" marker-end="url(#arrow)"/><text x="756" y="315" font-size="17">+Y right</text>
-<text x="440" y="604" font-size="17">Positive roll: right wing down • Positive pitch: nose up • Positive yaw: CW</text><text x="440" y="635" font-size="15">Provisional hardware layout — verify motor order, spin and axes with propellers removed</text>
-</g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="620" viewBox="0 0 840 620" role="img" aria-label="Owner confirmed Quad X motor layout viewed from above">
+<rect width="840" height="620" fill="#f8fafc"/><g font-family="Arial,sans-serif" text-anchor="middle" fill="#0f172a">
+<text x="420" y="42" font-size="24">FRONT ↑ · TOP VIEW</text><path d="M230 180L610 440M610 180L230 440" stroke="#334155" stroke-width="24"/><rect x="330" y="250" width="180" height="120" rx="20" fill="#dbeafe"/>
+<text x="420" y="300" font-size="22">ESP32</text><text x="420" y="332" font-size="18">MPU6500</text>
+<g fill="#e0f2fe" stroke="#0284c7" stroke-width="3"><circle cx="230" cy="180" r="70"/><circle cx="610" cy="180" r="70"/><circle cx="230" cy="440" r="70"/><circle cx="610" cy="440" r="70"/></g>
+<g font-size="23"><text x="230" y="175">M2 FL</text><text x="610" y="175">M1 FR</text><text x="230" y="435">M3 RL</text><text x="610" y="435">M4 RR</text></g>
+<g font-size="19"><text x="230" y="205">CW ↻</text><text x="610" y="205">CCW ↺</text><text x="230" y="465">CCW ↺</text><text x="610" y="465">CW ↻</text></g>
+<g font-size="17"><text x="230" y="90">GPIO26 · T+R+P−Y</text><text x="610" y="90">GPIO25 · T−R+P+Y</text><text x="230" y="550">GPIO32 · T+R−P+Y</text><text x="610" y="550">GPIO33 · T−R−P−Y</text></g>
+<text x="420" y="595" font-size="15">Owner report 2026-11-03; independently verify frame, spin and thrust before enabling outputs.</text></g></svg>

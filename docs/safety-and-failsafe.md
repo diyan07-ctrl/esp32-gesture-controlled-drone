@@ -1,24 +1,24 @@
-# Safety supervisor
+# Safety supervisor and deliberate failsafe policy
 
-**Current policy is restricted to propeller-off development. It is not a validated airborne failsafe.** No altitude, rangefinder, GNSS or thrust model exists. Autonomous controlled landing cannot be guaranteed. Stopping motors airborne causes uncontrolled descent; continuing stale throttle can cause flyaway. Do not fly until a flight-loss policy is engineered and validated for the operating envelope.
+The software implements a conservative **immediate motor pulse shutdown**, suitable only as an unvalidated bench baseline. Loss of control in flight can cause an uncontrolled fall. No reliable altitude sensing, position sensing, controlled landing, redundancy or independent motor watchdog is available. Do not characterize the current failsafe as a validated airborne policy.
 
-| State | Entry and permitted exit | Output |
+| State (wire value) | Entry/action | Exit |
 |---|---|---|
-| BOOT | begin → SENSOR_INITIALIZATION | High impedance, external pulldowns |
-| SENSOR_INITIALIZATION | IMU config succeeds → CALIBRATION; else FAULT | Inhibited |
-| CALIBRATION | 1000 stationary samples → DISARMED; timeout/failure → FAULT | Inhibited |
-| DISARMED | Fresh arm release observed; then all checks → ARMING_CHECKS | Inhibited |
-| ARMING_CHECKS | All checks held 1 s → ARMED; any absent → DISARMED | Inhibited |
-| ARMED | Explicit arm release → DISARMED; link/enable loss or kill → FAILSAFE; hard failure → FAULT | Permitted only with four compile-time verification gates |
-| FAILSAFE | Latched; reset and inspection required | No PWM pulses |
-| FAULT | Latched; reset and inspection required | No PWM pulses |
+| BOOT (0) | Output pins input/no pulses; no automatic arm | begin → SENSOR_INITIALIZATION |
+| SENSOR_INITIALIZATION (1) | Identity/configuration checks | Pass → CALIBRATION; failure → FAULT |
+| CALIBRATION (2) | Stationary level calibration; no motor pulses | Pass → DISARMED; timeout/failure → FAULT |
+| DISARMED (3) | Zero output; observe fresh explicit arm release | All checks and new arm request → ARMING_CHECKS |
+| ARMING_CHECKS (4) | Hold configured minimum ESC pulse, only after explicit request and verified output initialization | Checks continuously true for cfg::armHoldMs (1000 ms) → ARMED; invalid check → DISARMED |
+| ARMED (5) | Bounded stabilized outputs; near-zero throttle resets PID | Explicit arm release → DISARMED; emergency/link loss → FAILSAFE; critical sensor/timing/numeric/battery fault → FAULT |
+| FAILSAFE (6) | Zero duty/no pulses, latched | Inspection and system reset only |
+| FAULT (7) | Zero duty/no pulses, latched | Inspection and system reset only |
 
-Arming checks require healthy calibrated IMU, valid dt/attitude, current-session command ≤200 ms old, enable, explicit arm, low throttle ≤2%, acceptable measured pack voltage, local run-permit contact closed and hardware/controller verification flags. A timeout during the arming hold clears the observed arm-release interlock; reconnecting with arm still held cannot complete arming. No ESC output is attached until an explicit successful arming transition. No pulses when disarmed; actual ESC stop behavior must be measured before output use. Hardware pulldowns reduce floating-input risk while ESP32 pins are high impedance.
+This expands the requested SENSOR_CHECK into sensor initialization/calibration and keeps a separate FAULT diagnostic state. At every step emergency takes priority over normal arming/disarming and latches even while disarmed. Existing terminal faults remain latched. A validated stop uses a separate radio mailbox so later ordinary commands cannot overwrite it. Invalid or replayed packets do not refresh the connection.
 
-Fault bits: sensor1, timing2, battery4, link8, emergency16, numerical32, setup64. Non-finite/range-invalid samples are rejected; invalid mixer values cannot reach PWM. Timing faults include 2–6 ms sample interval violations and execution overruns. I2C stalls are bounded per transaction and lead to sensor/timing fault. A 1 s task watchdog is configured; it is last-resort supervision and far slower than the command timeout. Its reset/boot sequence and PWM cessation require scope testing. An MCU hang can retain a previous peripheral pulse until reset. No independent hardware kill gate exists.
+Arming requires valid/calibrated IMU, valid timing, fresh enabled transmitter, zero throttle (≤20/1000), explicit arm request after observed release, initialized ESC output, radio success, all four verification gates, and adequate battery if monitoring is fitted. Optional physical run-permit must be closed if enabled. Unfitted battery/switch inputs default disabled; this does not establish their protection is unnecessary. Attach failure with output gates enabled is a setup fault. Flags do not constitute physical validation.
 
-Bench timeout response latches immediate pulse inhibition. It intentionally does not execute an unvalidated throttle ramp, hover or landing. Normal ground disarm, link loss, brownout and catastrophic power-stage faults are distinct scenarios. An open local permit wire triggers emergency behavior; this GPIO cannot isolate battery power or recover a shorted ESC.
+Command age >200 ms while armed, or loss of transmitter enable, latches Link failsafe; it is never processed as an ordinary zero-throttle command. Duplicate/corrupt/invalid packets cannot postpone timeout. Reconnect never clears FAILSAFE/FAULT. Link interruption during an arming hold cancels it and requires a new observed release. Explicit ordinary disarm removes pulses immediately and requires release again before a new arm attempt.
 
-Battery detection is limited to total voltage plausibility and provisional thresholds; no cell monitor, current sensor or robust stuck-voltage detection. Logging failure must not block the controller. Power failure, detached propellers, shorted MOSFETs, sensor mounting failure or wrong motor order cannot be guaranteed recoverable in software.
+Fault bits: Sensor=1, Timing=2, Battery=4, Link=8, Emergency=16, Numeric=32, Setup=64. Interval outside 2–6 ms or measured execution reaching 4 ms faults the control loop. Task watchdog resets after approximately one second of missed service; LEDC may retain its last output during an MCU/task stall until reset, and reset/no-signal ESC behavior is unverified. A hardware output watchdog remains a preflight dependency.
 
-Review [output enablement](output-enablement.md) and the [stage-gated validation plan](testing-and-validation.md) before energizing any motor.
+With battery monitoring installed, invalid voltage or below configured low threshold (10.8 V provisional) causes motor shutdown; a 9.9 V critical check also exists. These raw loaded-pack limits have no hysteresis/debounce and must be characterized before flight; noisy ADC/sag can cause a cut. With no verified divider, monitoring is disabled and status reports 0 V/unavailable. HC-SR04 errors produce supplementary unhealthy telemetry and do not kill motors because altitude control does not depend on it. IMU faults are critical. Plausible stuck IMU/ADC values cannot all be diagnosed by range checks.

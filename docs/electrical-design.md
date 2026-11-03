@@ -1,3 +1,5 @@
+> Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
+
 # Electrical design
 
 The proposed power tree is 3S battery → rated PDB or soldered distribution harness → four independently routed ESC power pairs; a separate branch supplies a buck converter. Buck output is regulated 5 V to the verified DevKit input; its onboard 3.3 V rail supplies a compatible MPU breakout. A USB power bank independently powers the glove. Motor power and low-voltage power are separate physical paths with an appropriate common reference on the drone.

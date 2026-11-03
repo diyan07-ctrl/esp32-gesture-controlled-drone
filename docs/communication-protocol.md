@@ -1,26 +1,37 @@
-# ESP-NOW protocol v1
+# ESP-NOW protocol v2
 
-Use fixed channel 1, station mode, encrypted unicast with per-build peer MAC, private 16-byte PMK and LMK. Both endpoints must be provisioned locally. Default is unconfigured: no broadcast control and no public example keys. MAC allowlisting is additional filtering; it is not authentication on its own. CRC and sequence numbers are not cryptographic authentication.
+Single source: firmware/common/protocol/packet.h. Explicit little-endian integers, no native struct/float ABI. Fixed-peer encrypted unicast on configurable channel 1 by default; peers must share a channel and PMK/LMK. MAC allowlisting and CRC alone are not authentication. Protocol v1 is intentionally rejected.
 
 | Command offset | Bytes | Meaning |
 |---:|---:|---|
-| 0 | 1 | Magic 0x47 |
-| 1 | 1 | Version 1 |
-| 2 | 1 | Type 1 command |
-| 3 | 1 | Flags bit0 enable, bit1 arm, bit2 stop; other bits rejected |
-| 4 | 4 | Nonzero random boot session, uint32 LE |
-| 8 | 4 | Sequence uint32 LE |
-| 12 | 2 | Collective uint16 0–1000 |
-| 14/16/18 | 2 each | Roll/pitch/yaw int16 −1000…1000 |
-| 20 | 2 | Reserved zero |
-| 22 | 2 | CRC16-CCITT-FALSE over bytes 0…21, LE |
+| 0 / 1 / 2 | 1 each | Magic 0x47 / version 2 / type 1 |
+| 3 | 1 | Bit0 enabled, bit1 arm request, bit2 emergency stop; others rejected |
+| 4 / 8 | 4 each | Nonzero random boot session / uint32 sequence |
+| 12 | 2 | Throttle 0–1000 |
+| 14 / 16 / 18 | 2 each | Signed roll/pitch/yaw demand, each -1000…1000 |
+| 20 | 1 | Gesture enum 0…11: neutral, forward, backward, left, right, yaw-left, yaw-right, throttle-up, throttle-down, arm, disarm, emergency |
+| 21 | 1 | Reserved zero |
+| 22 / 24 | 2 each | Flex ADC counts 0…4095 |
+| 26 / 28 / 30 | 2 each | Signed roll/pitch/yaw centidegrees -18000…18000 |
+| 32…37 | 6 | Reserved zero |
+| 38 | 2 | CRC16-CCITT-FALSE, polynomial 0x1021, initial 0xffff, no reflection, xorout 0, over bytes 0…37 |
 
-Status has magic/version/type=2, byte3 state; session at4, acknowledged sequence at8, uint16 faults at12, battery mV at14, age ms at16, uint32 rejected count at18, CRC at22. Fixed size is 24 bytes in both directions. Encoding is explicit little endian; no C++ struct packing assumptions.
+Commands are 40 bytes. Status remains 24 bytes: magic/version/type=2 at 0/1/2; state at 3 (0…7), session at 4, acknowledged sequence at 8, uint16 fault mask at 12, battery millivolts at 14 (0 when unavailable), uint16 accepted-command age at 16 (saturates 65535), uint32 reject count at 18, CRC over 0…21 at 22. State/fault values are defined in the safety header. Range telemetry is serial-only, not a status extension.
 
-Callbacks enforce length and peer MAC then overwrite a one-slot mailbox. Main tasks validate CRC, version, type, flags, ranges, session and sequence. A first/new session is accepted only disabled with zero throttle; session changes while armed are rejected. Same-session freshness uses unsigned wrap-safe sequence delta in (0,2^31). Only accepted packets update the age timestamp, which is captured in the callback, not on dequeue. At 200 ms command age the armed drone latches FAILSAFE. An armed session change cannot extend the deadline. Safety latch needs power-cycle inspection, not a reconnect.
+Receiver accepts a new session only when not armed and the incoming packet has zero flags/throttle. The first packet after boot is also disabled/zero throttle. Sequence delta must lie in (0,2^31), including wraparound. Duplicate/old/invalid packets never refresh the timestamp. Gaps increment a loss estimate that also includes intentionally overwritten mailbox packets; it is not a calibrated RF-loss measurement. Unsigned subtraction handles timestamp wrap.
 
-Session identifiers prevent accidental previous-session mixing; they are not a durable anti-replay database. No receiver boot challenge/persistent replay protection is implemented. This is a security limitation requiring protocol revision for hostile-link operation. Sequence gaps are reported as loss estimates; latest-mailbox overwrites also contribute. They are not a calibrated RF packet-loss measurement.
+ESP-NOW callbacks allowlist MAC and length and copy to bounded mailboxes. A CRC-valid stop packet has a separate priority mailbox, preventing ordinary command overwrite; its session/sequence are still checked in the control task. Only one packet is consumed per control tick. A validated emergency is latched by the supervisor. A newer received ordinary packet cannot clear a latched stop.
 
-Transmit at most one outstanding ESP-NOW send. Completion callback releases the slot; immediate errors are counted. A missing completion stalls transmissions and causes timeout, not unbounded queued commands. MAC-layer send success is not application acknowledgment. Glove checks drone status session, advancing ack sequence and local status age. Drone status age remains the authoritative command-age indicator.
+Commands transmit at target 50 Hz; status at target 10 Hz. MAC completion is not an application acknowledgment. Only one send is outstanding, with atomic bookkeeping. Missing callbacks stall sends and cause a timeout. Glove requires an advancing ack for the matching session within 300 ms. It holds zero throttle until ARMED is acknowledged. The drone considers a command fresh through 200 ms inclusive; age >200 ms latches immediate-cut failsafe while armed. Recovery requires inspection and reset, never automatic re-arm. Session identifiers are not durable replay protection; no boot challenge or persistent anti-replay database exists.
 
-Provisioning: create ignored firmware/common/local_secrets.h defining namespace pairing with configured=true and constexpr uint8_t peer[6], pmk[16], lmk[16]. Select the drone peer MAC under BUILD_GLOVE and the glove peer MAC under BUILD_DRONE so both targets build consistently from one private header. Generate private random keys off-repository and use matching PMK/LMK. Do not commit the header or keys. Determine MAC via a standalone serial diagnostic before provisioning. Do not log keys. Default firmware builds without that header but intentionally cannot establish a link.
+## Private pairing
+
+Read both station MACs from their 115200-baud boot messages. Both boards initialize station mode even before pairing exists so the address can be obtained without keys. Never infer a station MAC from an unrelated Bluetooth/AP address. Generate private material locally:
+
+~~~sh
+python tools/calibration/provision_pairing.py --glove-mac AA:BB:CC:DD:EE:02 --drone-mac AA:BB:CC:DD:EE:04
+~~~
+
+The addresses above are format examples, not hardware MACs. The tool validates unicast/different addresses, generates matching random PMK/LMK and exclusively creates ignored firmware/common/local_secrets.h. It refuses overwriting an existing file. BUILD_GLOVE selects the drone peer; other firmware selects the glove peer. Rebuild/flash both boards using the same private header. Do not commit, log or publish it, or upload provisioned binaries to public artifacts. Default builds have pairing disabled. Channel, range and interference must be measured on the real system.
+
+References: [Espressif ESP-NOW IDF 4.4.7](https://docs.espressif.com/projects/esp-idf/en/v4.4.7/esp32/api-reference/network/esp_now.html).

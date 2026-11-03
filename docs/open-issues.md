@@ -1,3 +1,5 @@
+> Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
+
 # Engineering issue backlog
 
 Open GitHub issues: [hardware and power verification #1](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/issues/1), [airborne failsafe #2](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/issues/2), and [physical timing/sensor/controller validation #3](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/issues/3). The table retains detailed acceptance criteria and completed software/publication items for traceability.

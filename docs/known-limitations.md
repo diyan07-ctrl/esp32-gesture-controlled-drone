@@ -1,13 +1,15 @@
-# Known limitations
+# Known limitations and flight dependencies
 
-- Hardware identity incomplete: motor maker/current/props, ESC model/BEC/protocol, battery C-rating, PCB variants and mass.
-- All pin and power connections are provisional. No physical circuit, voltage, current, thrust, temperature, RF, timing or flight measurement exists.
-- Default motor outputs and radio pairing are inhibited. No production-ready or flight-ready configuration is supplied.
-- Firmware build and host C++ test execution depend on available tools; consult actual [results](validation-results.md). CI configuration alone is not a CI pass.
-- Euler complementary estimator is restricted to modest tilt and cannot reject all dynamic acceleration. No absolute heading, position, altitude hold or landing.
-- Gains are not tuned; 50 Hz actuator protocol candidate needs control-bandwidth validation. Saturation clips independently.
-- Sensor/calibration faults latch conservatively. No redundant IMU or independent watchdog-controlled motor gate.
-- Low-voltage thresholds are placeholders without load filtering or cell monitoring. Potentiometer and stuck ADC faults can remain plausible.
-- ESP-NOW encrypted pairing is local-only; receiver reboot lacks a boot challenge/persistent anti-replay state. No hostile-environment security guarantee.
-- Failsafe is bench pulse inhibition. It can cause catastrophic descent airborne and must be redesigned/validated before flight.
-- Software disarm cannot isolate battery energy or stop an ESC with failed power transistors.
+- No hardware test, upload, scope capture or flight was executed in this implementation session. Prior owner COM9/4 MB and individual motor checks do not verify current firmware.
+- Output gates remain false; pairing is unconfigured. Hardware configuration must be provisioned/verified rather than assuming default builds operate an aircraft.
+- Owner numbering/spins/GPIOs are documented and configured; independent physical verification is pending. Exact ESC startup/endpoints/no-signal behavior and logic compatibility remain unknown.
+- HC-SR04 model is confirmed, but proposed Trigger16/Echo17 wiring and Echo level protection are not verified. Acquisition remains disabled. No altitude hold exists.
+- Flex endpoints must be measured on the actual glove. Provisional gesture thresholds and emergency ergonomics require false-positive/false-negative testing. Plausible stuck ADC/IMU faults cannot all be detected.
+- Level boot calibration estimates offsets only, not accelerometer scale/misalignment or temperature drift. Mounting axis signs must be physically verified. Gyro yaw drifts; there is no absolute heading hold.
+- PID gains/angle limits are configurable bench values. Assumed decoupled plant convergence does not establish real F450 stability, thrust or actuator bandwidth; 50 Hz ESC latency may substantially limit usable control bandwidth.
+- Immediate-cut link/sensor/low-battery failsafe can crash an airborne drone. Controlled landing, redundancy and independent motor output watchdog are absent. LEDC may retain output during a stalled task until MCU reset.
+- Optional battery divider is disabled until installed/verified. Configured raw low thresholds lack debounce/hysteresis and need loaded-pack characterization. The reported 50C/1045 ratings are not measured compatibility or thrust evidence.
+- ESP-NOW pairing keys are private per setup; sequence/session/CRC checks are not durable replay defense. RF performance/interference/range are unmeasured. Latest mailbox loss counts include software overwrites.
+- Native tests exercise shared algorithms/mocked integration; actual I2C, RMT, LEDC, ADC, RF, watchdog and FreeRTOS timing remain hardware-validation dependencies. Static memory numbers do not measure runtime heap or stack.
+
+Follow [ordered hardware validation](testing-and-validation.md), [tuning](flight-control-algorithm.md), and [safety policy](safety-and-failsafe.md) before any supervised flight milestone.
