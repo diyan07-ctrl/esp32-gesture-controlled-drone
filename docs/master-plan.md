@@ -2,6 +2,8 @@
 
 Date: 2026-11-05. Status: initial design for review, not an implemented release.
 Owner confirmed MPU6050 on both boards and potentiometer throttle in this session.
+The subsequent [sensor migration](sensor-migration.md) implements that milestone;
+the inventory below records the original pre-migration inspection, not current status.
 This supersedes the November 3 MPU6500 / gesture-throttle target, but does not
 retroactively change the hardware or validation claims of the existing source.
 

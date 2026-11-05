@@ -10,7 +10,7 @@ flowchart TB
   E4 ==> M4["M4 RR CW"]
   P ==> BU["Buck: battery to regulated 5 V"]
   BU ==>|"Verified board input; no simultaneous USB"| D["Drone ESP32"]
-  D ==>|"Verified 3.3 V + GND"| I["MPU6500; AD0 GND"]
+  D ==>|"Verified 3.3 V + GND"| I["MPU6050; AD0 GND"]
   D -->|"21 SDA / 22 SCL; 3V3 pullups"| I
   D -->|"25 signal + reference; 220R and 10k pulldown"| E1
   D -->|"26 signal + reference; 220R and 10k pulldown"| E2

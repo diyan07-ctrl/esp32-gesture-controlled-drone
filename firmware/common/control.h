@@ -28,13 +28,16 @@ inline bool validDt(float dt) {
   return std::isfinite(dt) && dt >= 0.002f && dt <= 0.006f;
 }
 struct Estimator {
+  float tau = cfg::attitudeTau, gravityMin = cfg::gravityMin, gravityMax = cfg::gravityMax;
   float roll = 0, pitch = 0, yaw = 0;
   bool initialized = false;
   bool update(const Sample &s, float dt) {
-    if (!valid(s) || !validDt(dt))
+    if (!valid(s) || !validDt(dt) || !std::isfinite(tau) || tau <= 0 ||
+        !std::isfinite(gravityMin) || !std::isfinite(gravityMax) || gravityMin <= 0 ||
+        gravityMin >= 1 || gravityMax <= 1)
       return false;
     float norm = std::sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az);
-    bool gravity = norm > 0.85f && norm < 1.15f;
+    bool gravity = norm > gravityMin && norm < gravityMax;
     float ar = std::atan2(s.ay, s.az) * 57.2957795f;
     float ap = std::atan2(-s.ax, std::sqrt(s.ay * s.ay + s.az * s.az)) * 57.2957795f;
     if (!initialized) {
@@ -55,8 +58,8 @@ struct Estimator {
     pitch += pd * dt;
     yaw = std::remainder(yaw + yd * dt, 360.0f);
     if (gravity) {
-      float a = 0.5f / (0.5f + dt);
-      roll = a * roll + (1 - a) * ar;
+      float a = tau / (tau + dt);
+      roll = std::remainder(roll + (1 - a) * std::remainder(ar - roll, 360.0f), 360.0f);
       pitch = a * pitch + (1 - a) * ap;
     }
     return std::isfinite(roll) && std::isfinite(pitch) && std::isfinite(yaw);

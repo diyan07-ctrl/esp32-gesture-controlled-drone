@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ["tests/unit/core_tests.cpp", "tests/unit/sensor_gesture_tests.cpp", "tests/unit/imu_driver_tests.cpp",
-           "tests/unit/calibration_storage_tests.cpp",
+           "tests/unit/calibration_storage_tests.cpp", "tests/unit/sensor_migration_tests.cpp",
            "tests/integration/pipeline_tests.cpp", "simulation/tests/roll_model.cpp",
            "simulation/tests/closed_loop.cpp"]
 

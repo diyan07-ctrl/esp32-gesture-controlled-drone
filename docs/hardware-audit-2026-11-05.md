@@ -1,6 +1,9 @@
 # Hardware connection audit — 2026-11-05
 
 Status: documentary audit; no electrical measurement or board upload.
+Subsequent [sensor migration](sensor-migration.md) now implements the dedicated
+ADC36 and MPU6050 profile and updates current BOM/connection CSVs. The observations
+below describe the original inspection; physical wiring verification remains pending.
 Current owner requirement: two MPU6050s and a glove throttle potentiometer.
 The older BOM/connection CSVs describe MPU6500/HC-SR04 hardware; retain them as
 historical implementation inputs until firmware migration, then reconcile together.

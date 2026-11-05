@@ -1,17 +1,20 @@
 # Current hardware inventory and interface checklist
 
-Owner specifications/clarifications dated 2026-11-03. This is an engineering inventory, not a new procurement recommendation or compatibility approval. Inspect existing parts before adding anything. No current prices/availability were researched. Historical supplier snapshots are explicitly dated and do not override this architecture.
+Owner specifications updated 2026-11-05: MPU6050 on both boards and pot throttle.
+This is an inventory, not electrical compatibility approval. No current prices
+were researched; historical supplier snapshots do not override this target.
 
 |ID|Category|Component|Quantity|Required/Optional|Specification and validation dependency|
 |---|---|---|---|---|---|
 |E01|Existing|F450 frame with PDB|1|Required|Owner specified; current rating and orientation validation pending|
 |E02|Existing|ESP32 DevKit V1 drone; ESP32 glove|2|Required|Drone ESP32-D0WDQ6; 4MB historical detection; verify exact board circuits|
-|E03|Existing|MPU6500 breakout|2|Required|3.3V logic; identity 0x70; breakout supply and pullups unverified|
+|E03|Existing|MPU6050 breakout|2|Required|3.3V logic; identity 0x68; breakout supply and pullups unverified|
 |E04|Existing|A2212 1000 KV BLDC|4|Required|Owner specified; exact maker and thrust/current curves unknown|
 |E05|Existing|30 A ESC|4|Required|Exact model; BEC; PWM startup/endpoints/no-signal behavior unknown|
 |E06|Existing|3S LiPo 11.1V 2200mAh 50C|1|Required|Owner marking; not measured continuous capability|
 |E07|Existing|Resistive flex sensors|2|Required|Actual resistance; divider values and measured endpoints required|
-|E08|Existing|HC-SR04|1|Required|5V Echo protection mandatory; proposed GPIO16/17 not confirmed|
+|E08|Existing|HC-SR04|1|Optional|Historical accessory; disabled; Echo protection needed if fitted|
+|E10|Existing|Throttle potentiometer|1|Required|ADC1 GPIO36; actual resistance and non-rail full-travel conditioning unverified|
 |E09|Existing|1045 propellers|4|Required for eventual flight|Owner specified; remove during all initial tests; matched spin/thrust verification pending|
 |M01|Interface|Regulated drone electronics supply|1|Required independently of USB|Verify installed regulator; board input and transients; do not parallel BEC outputs|
 |M02|Interface|Glove regulated supply|1|Required|USB or verified regulated source; no raw LiPo to ESP32|

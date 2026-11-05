@@ -1,5 +1,6 @@
 flowchart LR
   P["Verified regulated glove power"] --> E["Glove ESP32"]
-  I["MPU6500; 3.3 V logic; SDA21 SCL22"] --> E
+  I["MPU6050; 3.3 V logic; SDA21 SCL22"] --> E
   F["Two calibrated flex dividers; ADC34 ADC35"] --> E
+  T["Calibrated potentiometer; ADC36 VP; protected non-rail travel"] --> E
   E --> R["Encrypted ESP-NOW v2"]

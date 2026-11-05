@@ -17,3 +17,9 @@ struct MockSerial {
   template <class... T> void printf(const char *, T...) {}
 };
 inline MockSerial Serial;
+inline void delay(unsigned) {}
+// Mirror the framework macro that previously intercepted IMU decoder calls.
+inline uint16_t mockArduinoWord(uint16_t value) {
+  return value;
+}
+#define word(...) mockArduinoWord(__VA_ARGS__)

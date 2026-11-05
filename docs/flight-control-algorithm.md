@@ -2,7 +2,15 @@
 
 Body axes are FRD: X forward, Y right, Z down. Positive roll lowers the right side, positive pitch raises the nose, positive yaw is clockwise viewed from above. Mount the sensor raw X forward, Y left, Z up. The driver maps acceleration to a gravity proxy (-rawX,+rawY,+rawZ), and angular rate to FRD (+rawGX,-rawGY,-rawGZ). Verify each sign physically.
 
-MPU6500 identity is 0x70 at WHO_AM_I 0x75; I2C address 0x68 is a separate concept. The driver selects ±8 g, ±500°/s, gyro and accel DLPF setting 3, 1 kHz internal filtered sample output (divider 0), sampled by the target 250 Hz application. Register readback, I2C errors, data-ready and numeric/range checks reject failures. At boot, after 100 ms warmup, 1000 consecutive level/stationary samples estimate gyro bias and one-position accelerometer offsets against (0,0,1). Movement resets accumulation; no successful calibration within 15 s faults. This cannot establish six-face scale, misalignment, temperature compensation or true physical level.
+MPU6050 identity is 0x68 at WHO_AM_I 0x75 regardless of bus AD0 address 0x68/0x69.
+The driver resets at startup, waits 100 ms, configures/readbacks +/-8 g, +/-500
+deg/s, CONFIG DLPF 3 and divider 0 (1 kHz sensor output), and polls data-ready at
+the target 250 Hz application rate. It does not write MPU6500 ACCEL_CONFIG2.
+Short/NACK/readback/clipping/range faults reject samples. After a further 100 ms
+application warmup, 1000 consecutive level/stationary samples estimate gyro bias
+and one-position accel offsets. Motion/read gaps reset unfinished calibration;
+15 s startup timeout faults. This is not six-face/temperature calibration.
+[MPU6050 implementation, configuration and tests](sensor-migration.md).
 
 The complementary estimator integrates body rates through Euler kinematics and blends accelerometer roll/pitch with a .5 s time constant only when acceleration magnitude is 0.85–1.15 g. Dynamic acceleration can still corrupt tilt. Pitch beyond ±60° and invalid dt fail estimation. Yaw has no absolute reference and drifts; no magnetometer is specified. Yaw commands use rate, not integrated heading.
 
@@ -39,4 +47,4 @@ Motor reaction yaw opposes propeller spin. Positive roll increases left motors; 
 
 HC-SR04 provides filtered distance only: reject zero/timeout and outside 0.02–4 m, low-pass .25 per accepted sample, mark stale after 300 ms. Its effective range, tilt/ground effects, rotor noise and update rate require measurements. No altitude-hold controller is implemented.
 
-Sources: [TDK MPU6500 register map](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6500-Register-Map2.pdf), [Espressif pinned LEDC API](https://github.com/espressif/arduino-esp32/blob/2.0.17/cores/esp32/esp32-hal-ledc.h), [HC-SR04 module datasheet](https://cdn.sparkfun.com/datasheets/Sensors/Proximity/HCSR04.pdf).
+Sources: [InvenSense MPU6050 register map, hosted copy](https://hw101.tbs1.de/mpu6050/doc/MPU-6000-6050-Register-Map.pdf), [Espressif pinned LEDC API](https://github.com/espressif/arduino-esp32/blob/2.0.17/cores/esp32/esp32-hal-ledc.h), [HC-SR04 module datasheet](https://cdn.sparkfun.com/datasheets/Sensors/Proximity/HCSR04.pdf).

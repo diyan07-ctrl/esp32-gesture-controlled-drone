@@ -25,15 +25,17 @@ struct Gesture {
   }
 };
 struct GestureConfig {
-  float bendOn = .75f, bendOff = .55f, tiltOn = 12, tiltOff = 8, yawOn = 35, yawOff = 20;
+  float bendOn = cfg::flexBendOn, bendOff = cfg::flexBendOff;
+  float tiltOn = 12, tiltOff = 8, yawOn = 35, yawOff = 20;
   float throttlePerSecond = .15f, smoothingSeconds = .1f;
+  bool potentiometerThrottle = false; // Legacy behavior retained for existing logic users.
   uint32_t debounceMs = 150, armMs = 1000;
 };
 struct GesturePipeline {
   GestureConfig config{};
   protocol::Gesture pending = protocol::Gesture::Neutral, stable = protocol::Gesture::Neutral;
   uint32_t since = 0;
-  bool bent[2] = {}, armed = false, stopped = false;
+  bool bent[2] = {}, armed = false, stopped = false, armReleased = false;
   float throttle = 0, roll = 0, pitch = 0, yaw = 0;
   void reset() {
     armed = false;
@@ -41,6 +43,7 @@ struct GesturePipeline {
     pending = stable = protocol::Gesture::Neutral;
     bent[0] = bent[1] = false;
     since = 0;
+    armReleased = false;
   }
   protocol::Gesture classify(float r, float p, float gz, float f0, float f1) {
     using G = protocol::Gesture;
@@ -55,9 +58,9 @@ struct GesturePipeline {
         return G::Arm;
       return G::Neutral;
     }
-    if (bent[0])
+    if (bent[0] && !config.potentiometerThrottle)
       return G::ThrottleUp;
-    if (bent[1])
+    if (bent[1] && !config.potentiometerThrottle)
       return G::ThrottleDown;
     float tiltThreshold =
         (stable == G::Left || stable == G::Right || stable == G::Forward || stable == G::Backward)
@@ -73,10 +76,14 @@ struct GesturePipeline {
       return gz > 0 ? G::YawRight : G::YawLeft;
     return G::Neutral;
   }
-  protocol::Gesture update(float r, float p, float gz, float f0, float f1, float dt, uint32_t now) {
+  protocol::Gesture update(float r, float p, float gz, float f0, float f1, float dt, uint32_t now,
+                           float pot = 0) {
     using G = protocol::Gesture;
     if (!validDt(dt) || !std::isfinite(r) || !std::isfinite(p) || !std::isfinite(gz) ||
-        !std::isfinite(f0) || !std::isfinite(f1) || f0 < 0 || f0 > 1 || f1 < 0 || f1 > 1) {
+        !std::isfinite(f0) || !std::isfinite(f1) || f0 < 0 || f0 > 1 || f1 < 0 || f1 > 1 ||
+        !std::isfinite(config.bendOn) || !std::isfinite(config.bendOff) || config.bendOff <= 0 ||
+        config.bendOff >= config.bendOn || config.bendOn >= 1 || !std::isfinite(pot) || pot < 0 ||
+        pot > 1) {
       reset();
       return G::Disarm;
     }
@@ -89,6 +96,13 @@ struct GesturePipeline {
     }
     if (stopped)
       return G::Emergency;
+    if (config.potentiometerThrottle && !bent[0] && !bent[1] && pot <= .02f)
+      armReleased = true;
+    if (config.potentiometerThrottle && next == G::Arm && (!armReleased || pot > .02f)) {
+      next = G::Neutral;
+      stable = G::Neutral;
+      since = now;
+    }
     if (next != pending) {
       pending = next;
       since = now;
@@ -99,9 +113,12 @@ struct GesturePipeline {
       armed = false;
       throttle = 0;
     }
-    if (stable == G::Arm && throttle <= .02f)
+    if (stable == G::Arm && throttle <= .02f &&
+        (!config.potentiometerThrottle || (armReleased && pot <= .02f)))
       armed = true;
-    if (armed) {
+    if (config.potentiometerThrottle)
+      throttle = armed ? pot : 0;
+    if (armed && !config.potentiometerThrottle) {
       if (stable == G::ThrottleUp)
         throttle = clamp(throttle + config.throttlePerSecond * dt, 0, 1);
       if (stable == G::ThrottleDown)

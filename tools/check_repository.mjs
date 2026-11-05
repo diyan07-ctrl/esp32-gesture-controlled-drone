@@ -48,7 +48,13 @@ check(compact(read('firmware/common/esc.h')).includes('if(!attached)return'),'ES
 const ini=read('platformio.ini');
 check(ini.includes('espressif32@6.9.0')&&ini.includes('[env:glove]')&&ini.includes('[env:drone]'),'build targets/platform pin missing');
 const ci=read('.github/workflows/firmware-ci.yml');
-check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone, motor_test]'),'CI must build both apps and bench image');
+check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone, motor_test, glove_sensors, drone_sensors]'),'CI must build both apps, bench and sensor images');
+check(config.includes('throttle=36') && config.includes('flex[2]={34,35}'),'dedicated glove ADC pins mismatch');
+const imu=read('firmware/common/imu.h');
+check(imu.includes('identity != 0x68') && !/0x1d/.test(imu),'MPU6050 identity/register profile mismatch');
+const diagnostic=read('firmware/sensor_diagnostics/src/main.cpp');
+check(!/esc\.attach|ledcAttachPin|radio::begin|\.update\(.*pid/i.test(diagnostic),'sensor diagnostics must have no actuator/radio authority');
+check(ini.includes('[env:glove_sensors]') && ini.includes('[env:drone_sensors]'),'missing independent sensor targets');
 check(ci.includes('python tools/run_host_tests.py'),'CI must execute the complete host suite');
 for(const id of [...read('hardware/bom.csv').matchAll(/^"([A-Z]\d+)"/gm)].map(m=>m[1]))check(read('docs/bill-of-materials.md').includes('|'+id+'|'),`BOM document missing ${id}`);
 check(Math.abs(11.1*2.2-24.42)<1e-9,'energy reference arithmetic');

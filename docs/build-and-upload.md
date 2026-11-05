@@ -7,10 +7,16 @@ python -m venv .venv
 # Activate the virtual environment using your shell's normal command.
 python -m pip install platformio==6.1.18
 python -m platformio run -e glove -e drone -e motor_test
+python -m platformio run -e glove_sensors -e drone_sensors
 python -m platformio pkg list -e drone
 ~~~
 
 The generic esp32dev board describes classic ESP32, 240 MHz, 4 MB flash; verify exact DevKit V1 pinout/regulator/USB circuit. No architecture migration is needed. Do not upgrade to Arduino 3.x without adapting LEDC, ESP-NOW callbacks and watchdog APIs and retesting.
+
+Start with independent glove_sensors/drone_sensors images; neither initializes
+ESCs or radio. [Sensor acceptance](sensor-migration.md) and
+[current build evidence](sensor-migration-results.md). Both physical IMU tests
+must pass before further flight-control integration.
 
 Default pairing and motor outputs are disabled. [Provision private peers](communication-protocol.md), then rebuild both endpoints. Never commit local_secrets.h or publish provisioned firmware binaries.
 

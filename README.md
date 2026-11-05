@@ -1,4 +1,4 @@
-﻿# Gesture-Controlled F450 Drone
+# Gesture-Controlled F450 Drone
 
 Two ESP32 boards provide glove input and an experimental onboard quadcopter
 controller. A separate USB laptop instrument cluster is the next planned subsystem.
@@ -10,18 +10,20 @@ controller. A separate USB laptop instrument cluster is the next planned subsyst
 
 ## Status and hardware revision
 
-This is the initial complete README draft for the November 5 master specification.
 The owner confirmed **MPU6050 on both boards and potentiometer throttle**.
-Existing source and historical validation target MPU6500 and gesture throttle.
-**The current IMU driver rejects MPU6050; do not flash it expecting MPU6050 support.**
-The migration and desktop application are specified, not implemented. Historical
-MPU6500 BOM, wiring and calibration instructions remain labeled by their dates;
-use the new audit to understand required changes before following them.
+Current source uses the MPU6050-specific profile and dedicated pot ADC36.
+The driver deliberately rejects MPU6500. [Migration and sensor acceptance](docs/sensor-migration.md)
+and [actual milestone results](docs/sensor-migration-results.md) distinguish
+software checks from outstanding physical sensor tests.
+The MPU6050/potentiometer migration is implemented for bench validation. The
+desktop application remains planned. Current wiring and calibration instructions
+now target MPU6050; historical validation records retain their original hardware.
 
 | Subsystem | Implemented baseline | New target / acceptance still needed |
 |---|---|---|
-| Glove | Flex calibration, MPU6500, gestures, ESP-NOW | MPU6050 driver, dedicated calibrated pot, stable physical readings |
-| Drone | Complementary estimate, rate PID, X mixer, supervisor | MPU6050 profile, detailed telemetry, physical signs/timing/tuning |
+| Glove | MPU6050, stable flex/pot captures, NVS, filtering/hysteresis, ESP-NOW | Actual sensor/ADC/calibration and gesture bench acceptance |
+| Drone | MPU6050, configurable complementary estimate; existing guarded controller retained | Independent physical IMU tests before further integration |
+| Sensor diagnostics | Independent glove_sensors / drone_sensors images; no radio/ESC initialization | Real identity, signs, calibration, noise and timing records |
 | Radio | Encoded v2 commands/status, CRC, sessions, encrypted peer | Actual two-board pairing, packet-loss and reconnect evidence |
 | ESC | Separate motor_test, LEDC 50 Hz / 1000–2000 us candidate | Exact ESC compatibility, scope traces and motor checks |
 | Desktop | Diagnostic parser utility | Standalone instrument cluster, 3D model, logging/replay |
@@ -66,7 +68,7 @@ Fusion. [Control equations and tuning](docs/flight-control-algorithm.md).
 | ESCs | 30 A | 4 | Identify model, BEC, logic level, PWM endpoints and shutdown |
 | Drone MCU | ESP32 DevKit V1 | 1 | 3.3 V GPIO; regulated supply only |
 | Glove MCU | ESP32 DevKit V1 | 1 | Independent power, ADC1 analog inputs |
-| IMUs | MPU6050 breakouts | 2 | Confirm identity, supply and I2C pullups |
+| IMUs | MPU6050 breakouts | 2 | Driver checks identity 0x68; verify supply and I2C pullups |
 | Flex sensors | Thumb and index resistive sensors | 2 | Measure flat/bent resistance and endpoints |
 | Potentiometer | Linear analog throttle control | 1 | Actual resistance/travel and fault behavior to verify |
 | Battery | 3S 11.1 V 2200 mAh LiPo | 1 | 12.6 V full; current capability/condition to validate |
@@ -79,9 +81,9 @@ Fusion. [Control equations and tuning](docs/flight-control-algorithm.md).
 | Test equipment | DMM, controlled supply, scope/logic analyzer | Access | Required for electrical/timing acceptance |
 | Loaded test equipment | Guarded thrust/current/thermal fixture | Access | Required before flight validation |
 
-Historical detailed [BOM](hardware/bom.csv) includes previously specified MPU6500
-and supplementary HC-SR04; neither establishes the new target harness. No extra
-range sensor is required by this revision and its existing path stays disabled.
+The detailed [BOM](hardware/bom.csv) now reflects MPU6050 and potentiometer.
+HC-SR04 remains an optional historical accessory, disabled by default. No physical
+harness or electrical compatibility is established by the inventory.
 
 ## Wiring
 
@@ -94,7 +96,7 @@ isolate propulsion power during wiring, firmware upload and sensor tests.
 | Both | MPU6050 VCC / GND | Verified compatible 3.3 V / local GND | Inspect actual breakout |
 | Both | MPU6050 AD0 | GND for address 0x68 | Confirm identity separately |
 | Glove | Thumb / index nodes | GPIO34 / GPIO35 | Separate 3.3 V flex dividers |
-| Glove | Pot wiper | GPIO36 / VP | Proposed, dedicated ADC1 input; confirm header |
+| Glove | Pot wiper | GPIO36 / VP | Implemented dedicated ADC1 input; confirm physical header |
 | Glove | Pot endpoints | 3.3 V / GND | Confirm orientation and electrical travel |
 | Drone | ESC1 signal | GPIO25, M1 front-right | Owner-reported, verify physically |
 | Drone | ESC2 signal | GPIO26, M2 front-left | Owner-reported, verify physically |
@@ -116,11 +118,17 @@ ESP32 GND ----------------------------------------- ESC signal grounds
 ESP32 3V3/GND -- MPU6050 supply; GPIO21/22 -- SDA/SCL
 ~~~
 
-[Detailed audit and electrical closure requirements](docs/hardware-audit-2026-11-05.md)
+[Current sensor wiring contract](docs/sensor-migration.md) is checked against source
+and automated assertions. GPIO assignments are software-verified; actual continuity,
+voltage levels and harness placement remain unverified. The
+[design-stage audit](docs/hardware-audit-2026-11-05.md)
 provides divider selection and fault considerations. Fixed flex resistors depend
 on measured sensor resistance; no exact value is established. GPIO34/35/36 have
 no internal pull resistors. Keep analog inputs in their characterized safe range,
-never above 3.3 V. A floating pot must not become valid throttle.
+never above 3.3 V. Pot usable travel must stay inside ADC counts 32..4063;
+design/verify end resistance or travel stops before calibration. Rail and calibrated-
+range faults clear throttle, but a plausible floating/stuck wiper needs hardware
+fault protection and remains a physical-test risk.
 
 Never apply 3S directly to ESP32/IMU. Do not parallel BEC positives or assume every
 ESC includes a BEC. Identify and isolate unused positive leads, use one verified
@@ -147,6 +155,7 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m platformio run -e glove
 .\.venv\Scripts\python.exe -m platformio run -e drone
 .\.venv\Scripts\python.exe -m platformio run -e motor_test
+.\.venv\Scripts\python.exe -m platformio run -e glove_sensors -e drone_sensors
 .\.venv\Scripts\python.exe tools/run_host_tests.py
 node tools/check_repository.mjs
 ~~~
@@ -157,18 +166,19 @@ VS Code with PlatformIO, preserving the common platformio.ini. Do not create
 three unrelated Arduino sketches. [Detailed build/upload guide](docs/build-and-upload.md).
 
 Before uploading, identify each board by USB enumeration and its own station MAC.
-Use a verified current port; COM9 was historical, not guaranteed. The following
-example uses COMx as a placeholder and the current baseline is MPU6500-only:
+Use a verified current port; COM9 was historical, not guaranteed. First use the
+sensor-only image on each respective board; COMx below is a placeholder:
 
 ~~~powershell
 .\.venv\Scripts\python.exe -m serial.tools.list_ports
-.\.venv\Scripts\python.exe -m platformio run -e glove -t upload --upload-port COMx
+.\.venv\Scripts\python.exe -m platformio run -e glove_sensors -t upload --upload-port COMx
 .\.venv\Scripts\python.exe -m platformio device monitor -p COMx -b 115200
 ~~~
 
-Choose `-e drone` for the drone only. Keep props removed, propulsion disconnected
-and output gates false. Do not upload the requested target to physical MPU6050
-boards until the explicit driver migration is compiled and tested.
+Choose `-e drone_sensors` for the independent drone IMU test. Keep props removed,
+propulsion disconnected and output gates false. The diagnostics initialize no ESCs
+or radio. Record separate physical passes on both boards before further flight-
+control integration. Normal images remain `-e glove` and `-e drone`.
 
 ## ESP-NOW setup
 
@@ -211,9 +221,10 @@ initial desktop monitoring must be read-only.
 
 ## Calibration and operating procedure
 
-The current [calibration guide](docs/calibration-guide.md) documents the baseline.
-The new target additionally needs measured potentiometer min/max/fault limits and
-an MPU6050 register profile. Level offset is not six-face accelerometer calibration.
+The current [calibration guide](docs/calibration-guide.md) documents the migrated
+MPU6050 and flex/pot pipeline: stationary startup gyro/level offsets, `o`/`b` flex
+and `l`/`h` pot endpoint captures, then explicit `s` to save. No default endpoints
+permit commands. Level offset is not six-face accelerometer calibration.
 Do not save guessed endpoints or claim calibrated heading from a six-axis IMU.
 
 1. Inspect frame, connectors, polarity, LiPo condition, regulator, IMU mounting and
@@ -246,9 +257,9 @@ is implemented; that remains a flight blocker.
 | Symptom | First checks |
 |---|---|
 | Upload fails | Correct board/port, data-capable USB cable, closed monitor, actual bridge driver, boot mode |
-| IMU not detected | Profile mismatch (current source MPU6500-only), identity vs I2C address, rails/pullups, SDA/SCL, AD0 |
+| IMU not detected | MPU6050 identity 0x68 vs I2C address, rails/pullups, SDA/SCL, AD0; MPU6500 deliberately rejected |
 | Flex noisy/reversed | Common ground, measured divider/endpoints, orientation, wiring, ADC range and mechanical strain |
-| Pot noisy/unsafe | Dedicated GPIO36 wiring, continuity, rail limits, endpoint calibration and wiper fault bias; target code pending |
+| Pot noisy/unsafe | Dedicated GPIO36 wiring, continuity, non-rail travel, stable l/h captures, calibrated range and wiper fault bias |
 | ESP-NOW offline | Both MACs/channel/keys/version, provisioning, source filtering, age/ACK counters |
 | Motor direction wrong | Props off; physical map, ESC phase order, spin and correction signs; never fix by guessing GPIO order |
 | ESC will not arm | Actual manual/endpoints/logic, common ground and output gates; no automatic full-throttle calibration |
@@ -273,8 +284,9 @@ and remaining work. Distinguish compilation, host tests, hardware bench tests,
 integrated tests and flight. Simulation is an assumed plant, not F450 evidence.
 
 [This design-stage execution report](docs/design-review-results.md) records current
-checks and publication. Future work follows the review checkpoint: sensor/pot
-migration, telemetry, desktop, physical integration, then flight readiness review.
+checks and publication. [Current sensor milestone evidence](docs/sensor-migration-results.md)
+covers the migration. Separate physical IMU tests on both boards gate further
+flight-control integration; telemetry, desktop and flight readiness remain later work.
 Use a development branch and subsystem commits; do not overwrite main. No flight
 release is implied by a successful build or push.
 

@@ -2,7 +2,7 @@ flowchart TB
   F["FRONT: viewed from above"]
   F --- M2["M2 FRONT LEFT CW; GPIO26; T+R+P-Y"]
   F --- M1["M1 FRONT RIGHT CCW; GPIO25; T-R+P+Y"]
-  M2 --- C["ESP32 + MPU6500"]
+  M2 --- C["ESP32 + MPU6050"]
   M1 --- C
   C --- M3["M3 REAR LEFT CCW; GPIO32; T+R-P+Y"]
   C --- M4["M4 REAR RIGHT CW; GPIO33; T-R-P-Y"]
