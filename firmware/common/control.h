@@ -28,17 +28,20 @@ inline bool validDt(float dt) {
   return std::isfinite(dt) && dt >= 0.002f && dt <= 0.006f;
 }
 struct Estimator {
+  float tau = cfg::attitudeTau, gravityMin = cfg::gravityMin, gravityMax = cfg::gravityMax;
   float roll = 0, pitch = 0, yaw = 0;
   bool initialized = false;
   bool update(const Sample &s, float dt) {
-    if (!valid(s) || !validDt(dt))
+    if (!valid(s) || !validDt(dt) || !std::isfinite(tau) || tau <= 0 ||
+        !std::isfinite(gravityMin) || !std::isfinite(gravityMax) || gravityMin <= 0 ||
+        gravityMin >= 1 || gravityMax <= 1)
       return false;
     float norm = std::sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az);
-    bool gravity = norm > 0.85f && norm < 1.15f;
+    bool gravity = norm > gravityMin && norm < gravityMax;
     float ar = std::atan2(s.ay, s.az) * 57.2957795f;
     float ap = std::atan2(-s.ax, std::sqrt(s.ay * s.ay + s.az * s.az)) * 57.2957795f;
     if (!initialized) {
-      if (!gravity)
+      if (!gravity || std::fabs(ap) > 60)
         return false;
       roll = ar;
       pitch = ap;
@@ -51,15 +54,22 @@ struct Estimator {
     float rd = s.gx + std::sin(r) * std::tan(p) * s.gy + std::cos(r) * std::tan(p) * s.gz;
     float pd = std::cos(r) * s.gy - std::sin(r) * s.gz;
     float yd = (std::sin(r) * s.gy + std::cos(r) * s.gz) / std::cos(p);
-    roll += rd * dt;
-    pitch += pd * dt;
-    yaw = std::remainder(yaw + yd * dt, 360.0f);
+    float nextRoll = roll + rd * dt, nextPitch = pitch + pd * dt;
+    float nextYaw = std::remainder(yaw + yd * dt, 360.0f);
     if (gravity) {
-      float a = 0.5f / (0.5f + dt);
-      roll = a * roll + (1 - a) * ar;
-      pitch = a * pitch + (1 - a) * ap;
+      float a = tau / (tau + dt);
+      nextRoll = std::remainder(nextRoll + (1 - a) * std::remainder(ar - nextRoll, 360.0f), 360.0f);
+      nextPitch = a * nextPitch + (1 - a) * ap;
     }
-    return std::isfinite(roll) && std::isfinite(pitch) && std::isfinite(yaw);
+    // Validate the candidate before publication: a boundary crossing must not be
+    // marked healthy for one cycle or poison recovery after rejected input.
+    if (!std::isfinite(nextRoll) || !std::isfinite(nextPitch) || !std::isfinite(nextYaw) ||
+        std::fabs(nextPitch) > 60)
+      return false;
+    roll = nextRoll;
+    pitch = nextPitch;
+    yaw = nextYaw;
+    return true;
   }
 };
 struct Pid {

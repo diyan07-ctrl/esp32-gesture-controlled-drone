@@ -5,7 +5,7 @@
 struct MockWire {
   std::array<uint8_t, 256> registers{};
   uint8_t cursor = 0;
-  bool first = true, fail = false;
+  bool first = true, fail = false, shortRead = false;
   int corrupt = -1;
   void begin(int, int, unsigned) {}
   void setTimeOut(unsigned) {}
@@ -23,7 +23,7 @@ struct MockWire {
     return fail ? 1 : 0;
   }
   size_t requestFrom(uint8_t, size_t n, bool) {
-    return fail ? 0 : n;
+    return fail ? 0 : shortRead ? n - 1 : n;
   }
   uint8_t read() {
     uint8_t v = registers[cursor];
@@ -32,7 +32,7 @@ struct MockWire {
     ++cursor;
     return v;
   }
-  void word(unsigned reg, int16_t v) {
+  void setWord(unsigned reg, int16_t v) {
     registers[reg] = uint16_t(v) >> 8;
     registers[reg + 1] = uint16_t(v) & 255;
   }

@@ -1,0 +1,30 @@
+{
+  "label": "SIMULATION ONLY: assumed F450 plant, NOT measured hardware",
+  "seed": 4506050,
+  "dt": 0.004,
+  "vehicle": {
+    "mass_kg": 1.5, "diagonal_m": 0.45,
+    "inertia_kg_m2": [0.025, 0.025, 0.045],
+    "kt_N_s2": 0.0000075, "kq_Nm_s2": 0.00000012,
+    "omega_max_rad_s": 900.0, "motor_tau_s": 0.04,
+    "esc_hz": 50.0, "linear_drag_N_s_m": 0.2,
+    "angular_drag_Nm_s": 0.015, "gravity_m_s2": 9.80665
+  },
+  "sensor": {
+    "accel_noise_g": 0.004, "gyro_noise_dps": 0.08,
+    "gyro_bias_dps": [0.2, -0.15, 0.3],
+    "gyro_drift_dps_per_s": [0.0005, -0.0004, 0.0008],
+    "gyro_cutoff_hz": 42.0, "accel_cutoff_hz": 44.0,
+    "adc_noise_counts": 2.0
+  },
+  "analog_fixture": {
+    "label": "SYNTHETIC endpoints from native regression fixtures; never device measurements",
+    "thumb_open": 1000, "thumb_bent": 3000,
+    "index_open": 1200, "index_bent": 2800,
+    "pot_low": 1000, "pot_high": 3000
+  },
+  "link": {"loss": 0.0, "delay_s": 0.008, "jitter_s": 0.003,
+           "duplicate": 0.0, "corrupt": 0.0, "queue_limit": 256},
+  "trace_hz": 25.0, "trace_limit": 10000,
+  "virtual_actuation_permit": true
+}

@@ -1,6 +1,6 @@
 flowchart LR
-  G["Glove MPU6500 + two flex sensors"] --> T["ESP32 calibrated gesture transmitter"]
-  T -->|"ESP-NOW v2 commands 50 Hz"| D["Drone ESP32 + MPU6500"]
+  G["Glove MPU6050 + two flex sensors + pot ADC36"] --> T["ESP32 calibrated gesture transmitter"]
+  T -->|"ESP-NOW v2 commands 50 Hz"| D["Drone ESP32 + MPU6050"]
   D -->|"Status 10 Hz"| T
   D --> C["Estimator + safety + cascaded control 250 Hz"]
   C --> M["Configured Quad-X mixer + gated ESC PWM"]

@@ -1,15 +1,20 @@
 # Wiring and confirmed hardware
 
-Owner reports on 2026-11-03 establish two MPU6500s, two flex sensors, HC-SR04, 3S 2200 mAh 50C, 1045 props, A2212 1000 KV motors and 30 A ESCs. Exact breakout, ESC and regulator models remain unknown. GPIO numbers below are chip GPIOs, not header positions. No actual electrical measurements were performed here.
+Owner confirmed two MPU6050s and potentiometer throttle on 2026-11-05, superseding
+the November 3 IMU/throttle configuration. The new source and automated checks
+agree on the GPIOs below; physical continuity, headers, rails and pullups remain
+unverified. HC-SR04 is an optional historical accessory, disabled. Exact breakout,
+ESC, analog-component and regulator models remain unknown. GPIO numbers are chip
+GPIOs, not header positions. No actual electrical measurements were performed here.
 
 ## Both boards
 
 | Function | GPIO / connection | Constraint |
 |---|---|---|
-| MPU6500 SDA / SCL | 21 / 22 | Pullups to 3.3 V only; 400 kHz candidate |
-| MPU6500 VCC / GND | Verified sensor-compatible 3.3 V / common GND | Inspect breakout regulator/pullups; no assumed 5 V tolerance |
-| MPU6500 AD0 | GND | Provisional address 0x68; identity register must read 0x70 |
-| MPU6500 CS | High to sensor logic supply where exposed | I2C mode; inspect actual breakout |
+| MPU6050 SDA / SCL | 21 / 22 | Pullups to 3.3 V only; 400 kHz candidate |
+| MPU6050 VCC / GND | Verified sensor-compatible 3.3 V / common GND | Inspect breakout regulator/pullups; no assumed 5 V tolerance |
+| MPU6050 AD0 | GND | Provisional address 0x68; identity register must read 0x68 |
+| MPU6050 INT | Unconnected for baseline polling | Firmware enables/polls data-ready status |
 | IMU mounting | Raw X forward, Y left, Z up | Firmware transforms into FRD body rates and gravity proxy |
 | Optional LED | 23 via series resistor | Not flight-state evidence |
 
@@ -21,10 +26,20 @@ GPIO6–11 are flash pins; avoid strapping pins for added functions. GPIO34/35 a
 |---|---:|---|
 | Flex sensor 1 ADC | 34 | Resistive divider powered from 3.3 V |
 | Flex sensor 2 ADC | 35 | Separate resistive divider powered from 3.3 V |
+| Potentiometer wiper ADC | 36 / VP | Dedicated ADC1 input; verify exposed header and conditioning |
+| Potentiometer end terminals | 3.3 V / GND | Verify full usable travel stays within non-rail ADC range |
 | Optional arm switch | 18 | Active low to GND; disabled by default |
 | Optional hold-to-enable | 19 | Active low to GND; disabled by default |
 
 For each flex sensor, connect 3.3 V → flex resistance → ADC node → fixed resistor → GND, with suitable ADC series resistance and filtering. Select the fixed resistor using the measured sensor resistance span and ADC safe range. No sensor resistance, open/bent count or usable endpoint is invented here. Keep the ADC within its characterized range, never above 3.3 V. Capture both endpoints through serial and confirm polarity; inverted endpoint order is supported. A broken wire often produces a rail reading, but a stuck plausible value cannot always be detected.
+
+The pot must have an externally verified safe/fault-biased analog interface.
+Usable endpoints must be strictly inside ADC counts 32..4063, with at least 500
+counts span; rail samples and excessive calibrated-range excursions inhibit
+commands. A plain 0�3.3 V pot may saturate at its ends: select and verify external
+end resistance/conditioning or stops from actual components. Do not conceal rails
+with software clamping. No exact pot or resistor values are claimed verified.
+GPIO36 has no internal pull resistor. See [capture/fault procedure](sensor-migration.md).
 
 Power the glove from a verified regulated source such as its USB input. The two boards have independent supply arrangements; ESP-NOW does not require a wired ground between glove and drone.
 

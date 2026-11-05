@@ -17,11 +17,12 @@ struct FlexCalibration {
   }
 };
 struct FlexFilter {
+  float tau = cfg::flexTau;
   float value = 0;
   bool initialized = false;
   bool update(float raw, const FlexCalibration &cal, float dt) {
     float v;
-    if (!cal.normalize(raw, v) || !validDt(dt)) {
+    if (!cal.normalize(raw, v) || !validDt(dt) || !std::isfinite(tau) || tau <= 0) {
       initialized = false;
       return false;
     }
@@ -29,7 +30,7 @@ struct FlexFilter {
       value = v;
       initialized = true;
     } else
-      value += dt / (.04f + dt) * (v - value);
+      value += dt / (tau + dt) * (v - value);
     return true;
   }
 };

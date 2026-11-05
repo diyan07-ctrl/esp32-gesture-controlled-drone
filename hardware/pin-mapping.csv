@@ -4,6 +4,7 @@ Both,I2C SCL,22,output,3.3V,400kHz candidate
 Both,Status LED,23,output,3.3V,Optional via series resistor
 Glove,Flex1,34,ADC1 input,0-3.3V,Measured divider endpoints required
 Glove,Flex2,35,ADC1 input,0-3.3V,Measured divider endpoints required
+Glove,Potentiometer wiper,36,ADC1 input,0-3.3V,Software checked; physical VP header and non-rail full travel to verify
 Glove,Optional arm switch,18,input pullup,3.3V,Disabled by default
 Glove,Optional enable switch,19,input pullup,3.3V,Disabled by default
 Drone,M1 front-right CCW,25,output,3.3V,Owner confirmed; physical verification pending

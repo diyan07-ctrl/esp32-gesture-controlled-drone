@@ -5,7 +5,11 @@ Executed software results are in [validation-results](validation-results.md). Th
 Record firmware commit/configuration, exact device models, instrument traces, wiring photos, timestamp, measured values and pass/fail for every step. All initial motor tests must have every propeller removed. Keep a physical battery disconnect accessible and secure the frame.
 
 1. **Boot/serial diagnostics:** isolate propulsion, verify regulated rails and ground, confirm actual COM port (COM9 was historical), flash the correct board, observe boot/disarmed state and disabled output gates. Reboot/brownout must never arm; capture serial faults.
-2. **MPU6500 communication:** check both identity registers read 0x70, supply/pullups/I2C edges and configured register readbacks. Disconnect sensor to verify initialization failure and output inhibition. Record actual sample timing.
+2. **MPU6050 communication:** first use independent glove_sensors/drone_sensors
+   images; both WHO_AM_I registers must read 0x68 (separate from AD0 address).
+   Check rails/pullups/readbacks, disconnect failures, calibration/noise/signs and
+   actual timing. [Required separate acceptance records](sensor-migration.md).
+   Both physical IMU tests must pass before further flight-control integration.
 3. **Flex readings:** capture open/bent NVS endpoints; sweep both independently; test rails/disconnection/noisy transitions; validate debounce/hysteresis and every gesture with outputs disabled. Verify calibration is rejected while arm request active.
 4. **Wireless:** provision private peers/keys, verify advancing application acknowledgments, commands/status, session restarts, loss estimates and measured latency. Corrupt packets and replay/duplicate sequences with a controlled test transmitter; verify no age refresh. Establish range/interference limits. Host mocks do not execute RF.
 5. **ESC signals:** identify exact ESC manual. Scope candidate 50 Hz / 1000–2000 µs outputs only after the enablement review. Verify startup/disarm/fault zero duty, explicit arming minimum pulse and bounds; confirm no-signal means motor stop on this ESC. Inspect channel assignment and jitter under worst workload.
