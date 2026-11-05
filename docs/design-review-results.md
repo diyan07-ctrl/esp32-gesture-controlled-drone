@@ -47,6 +47,37 @@ CI workflow can independently rebuild the branch after publication.
 Checks exercise the unchanged MPU6500 source and new documentation only; even a
 successful baseline build cannot validate MPU6050/pot hardware or desktop design.
 
+## Publication and exact-commit CI
+
+Pushed design commit `8cb5d4fce039a122db434bc5255ad15ddfcf2363` to
+`development/f450-ground-station`, with upstream tracking and no main change.
+[CI run 41982334382](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/41982334382)
+completed successfully on that SHA. All four jobs passed: glove, drone,
+motor_test and logic. Inspected build logs contained no `warning:` or `error:`
+diagnostics. The logic log reported:
+
+| Check | Observed result |
+|---|---|
+| Repository | 513 static assertions PASS |
+| Core | 1,553 assertions PASS |
+| Sensor/gesture/PWM | 49 assertions PASS |
+| MPU6500 driver/calibration, mocked I2C | 3,013 assertions PASS |
+| Calibration storage, mocked NVS/serial | 17 assertions PASS |
+| Command/safety/PWM mocked integration | 501 assertions PASS |
+| Closed-loop assumed plant | 62,727 steps/saturation cases PASS |
+| Python tools | 4 tests, OK |
+
+| Firmware baseline | Static RAM bytes | Flash bytes | Result |
+|---|---:|---:|---|
+| glove | 44,320 / 327,680 | 768,845 / 1,310,720 | PASS |
+| drone | 43,872 / 327,680 | 760,301 / 1,310,720 | PASS |
+| motor_test | 21,560 / 327,680 | 271,793 / 1,310,720 | PASS |
+
+This subsequent report-only update records the observed evidence. The exact SHA
+above identifies the checked source; these results do not cover new MPU6050/pot
+firmware, real hardware or a desktop app. GitHub CLI initially could not read its
+configuration under the sandbox; the read was retried with approved access.
+
 Hardware bench/integration, sensor readings, RF pairing, PWM measurements, sensor-
 to-actuator latency, desktop launch/rendering, telemetry latency, tuning and flight:
 **NOT EXECUTED**. No board was opened or firmware uploaded during this design stage.
