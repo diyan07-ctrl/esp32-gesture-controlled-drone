@@ -48,10 +48,13 @@ check(compact(read('firmware/common/esc.h')).includes('if(!attached)return'),'ES
 const ini=read('platformio.ini');
 check(ini.includes('espressif32@6.9.0')&&ini.includes('[env:glove]')&&ini.includes('[env:drone]'),'build targets/platform pin missing');
 const ci=read('.github/workflows/firmware-ci.yml');
-check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone, motor_test, glove_sensors, drone_sensors, drone_bench]'),'CI must build all firmware images');
+check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone, motor_test, glove_sensors, drone_sensors, drone_bench, drone_pid_bench]'),'CI must build all firmware images');
 const benchMain=read('firmware/drone_bench/src/main.cpp');
 check(ini.includes('[env:drone_bench]')&&benchMain.includes('GPIO25/26/32/33=INPUT'),'motor-free BNO055 bench target missing');
 check(!/esc\.attach|ledcAttachPin|motorMixer|\.update\(.*pid/i.test(benchMain),'drone bench must have no actuator calls');
+const shadowMain=read('firmware/drone_pid_bench/src/main.cpp');
+check(ini.includes('[env:drone_pid_bench]')&&shadowMain.includes('GPIO25/26/32/33=INPUT'),'motor-free PID shadow target missing');
+check(!/#include\s*[<"]esc\.h|\bledcSetup\s*\(|\bledcAttachPin\s*\(|\bledcWrite\s*\(|\besp_now_send\s*\(/i.test(shadowMain),'PID shadow must have no actuator calls');
 check(read('.gitignore').includes('local_wifi.h'),'Wi-Fi credentials must be ignored');
 check(config.includes('throttle=36') && config.includes('flex[2]={34,35}'),'dedicated glove ADC pins mismatch');
 const imu=read('firmware/common/imu.h');

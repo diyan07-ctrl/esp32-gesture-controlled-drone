@@ -76,9 +76,12 @@ struct Pid {
   // Bench starting values only. Units: normalized output per degree/s and seconds.
   float kp = cfg::rateKp, ki = cfg::rateKi, kd = cfg::rateKd, limit = cfg::rateLimit;
   float integral = 0, previous = 0, derivative = 0;
+  // Last-cycle diagnostics; these do not alter the controller calculation.
+  float error = 0, pTerm = 0, iTerm = 0, dTerm = 0, output = 0;
   bool initialized = false;
   void reset() {
     integral = previous = derivative = 0;
+    error = pTerm = iTerm = dTerm = output = 0;
     initialized = false;
   }
   float update(float target, float measured, float dt, bool freeze = false) {
@@ -86,16 +89,20 @@ struct Pid {
       reset();
       return 0;
     }
-    float error = target - measured;
+    error = target - measured;
     float raw = initialized ? -(measured - previous) / dt : 0;
     previous = measured;
     initialized = true;
     derivative += dt / (0.02f + dt) * (raw - derivative);
     float candidate = clamp(integral + ki * error * dt, -limit, limit);
-    float output = kp * error + candidate + kd * derivative;
-    if (!freeze && (std::fabs(output) <= limit || output * error < 0))
+    float candidateOutput = kp * error + candidate + kd * derivative;
+    if (!freeze && (std::fabs(candidateOutput) <= limit || candidateOutput * error < 0))
       integral = candidate;
-    return clamp(kp * error + integral + kd * derivative, -limit, limit);
+    pTerm = kp * error;
+    iTerm = integral;
+    dTerm = kd * derivative;
+    output = clamp(pTerm + iTerm + dTerm, -limit, limit);
+    return output;
   }
 };
 struct Mix {

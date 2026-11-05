@@ -9,7 +9,7 @@ namespace flight {
 // Register/scale source: Bosch BST-BNO055-DS000-18, sections 3.3/3.6/4.3.
 struct BnoSample {
   float accel[3] = {}, gyro[3] = {}, quaternion[4] = {};
-  float roll = 0, pitch = 0;
+  float roll = 0, pitch = 0, yaw = 0;
   uint8_t calibration = 0, systemStatus = 0, systemError = 0;
   bool calibrated() const {
     return ((calibration >> 4) & 3) == 3 && ((calibration >> 2) & 3) == 3;
@@ -39,7 +39,9 @@ inline bool decodeBnoData(const uint8_t accel[6], const uint8_t gyro[6],
   candidate.roll = std::atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)) * 57.2957795f;
   float sine = 2 * (w * y - z * x);
   candidate.pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, sine))) * 57.2957795f;
-  if (!std::isfinite(candidate.roll) || !std::isfinite(candidate.pitch)) return false;
+  candidate.yaw = std::atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)) * 57.2957795f;
+  if (!std::isfinite(candidate.roll) || !std::isfinite(candidate.pitch) ||
+      !std::isfinite(candidate.yaw)) return false;
   out = candidate;
   return true;
 }

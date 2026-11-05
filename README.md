@@ -6,6 +6,14 @@ controller. A separate USB laptop instrument cluster is the next planned subsyst
 
 ## Current drone-only BNO055 bench image
 
+The current **PID shadow milestone** adds a separate motor-inhibited
+`drone_pid_bench` target. It runs the existing PID and X-frame mixer with real
+BNO055 data, sends read-only UDP PID telemetry, and starts in sensor mode.
+`MOTOR_LOCKED` sends no ESC signal. The exact installed ESC model and safe pulse
+contract are unknown, so no individual motor test has been run. See the
+[validation guide](docs/pid-bench-validation.md) and
+[actual capture report](docs/pid-bench-capture-2026-11-05.md).
+
 The drone-side IMU has changed to **BNO055**. The glove remains MPU6050 and is
 outside this milestone. The new `drone_bench` image scans GPIO21/22, checks the
 BNO055 identity, reads its six-axis fusion attitude, initializes ESP-NOW, joins
