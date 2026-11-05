@@ -26,7 +26,7 @@ inline QueueHandle_t inbox = nullptr;
 inline QueueHandle_t emergencyInbox = nullptr;
 inline std::atomic<bool> busy{false};
 inline std::atomic<uint32_t> dropped{0}, sendErrors{0};
-inline bool ready = false;
+inline bool ready = false, initialized = false;
 inline void received(const uint8_t *mac, const uint8_t *data, int len) {
   if ((len != int(protocol::commandSize) && len != int(protocol::statusSize)) ||
       memcmp(mac, pairing::peer, 6)) {
@@ -51,16 +51,26 @@ inline void sent(const uint8_t *, esp_now_send_status_t status) {
   busy = false;
 }
 inline bool begin() {
-  if (!pairing::configured)
-    return false;
+  if (initialized)
+    return ready;
   inbox = xQueueCreate(1, sizeof(Message));
   emergencyInbox = xQueueCreate(1, sizeof(Message));
   if (!inbox || !emergencyInbox)
     return false;
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  if (esp_wifi_set_channel(cfg::radioChannel, WIFI_SECOND_CHAN_NONE) != ESP_OK ||
-      esp_now_init() != ESP_OK || esp_now_set_pmk(pairing::pmk) != ESP_OK)
+  if (WiFi.status() != WL_CONNECTED &&
+      esp_wifi_set_channel(cfg::radioChannel, WIFI_SECOND_CHAN_NONE) != ESP_OK)
+    return false;
+  uint8_t channel = 0;
+  wifi_second_chan_t secondary = WIFI_SECOND_CHAN_NONE;
+  if (esp_wifi_get_channel(&channel, &secondary) != ESP_OK ||
+      channel != cfg::radioChannel || esp_now_init() != ESP_OK)
+    return false;
+  initialized = true;
+  if (!pairing::configured)
+    return false;
+  if (esp_now_set_pmk(pairing::pmk) != ESP_OK)
     return false;
   esp_now_peer_info_t p{};
   memcpy(p.peer_addr, pairing::peer, 6);
@@ -71,6 +81,12 @@ inline bool begin() {
   ready = esp_now_add_peer(&p) == ESP_OK && esp_now_register_recv_cb(received) == ESP_OK &&
           esp_now_register_send_cb(sent) == ESP_OK;
   return ready;
+}
+inline bool channelCompatible() {
+  uint8_t channel = 0;
+  wifi_second_chan_t secondary = WIFI_SECOND_CHAN_NONE;
+  return esp_wifi_get_channel(&channel, &secondary) == ESP_OK &&
+         channel == cfg::radioChannel;
 }
 inline bool receive(Message &m) {
   return ready &&

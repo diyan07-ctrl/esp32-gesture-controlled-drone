@@ -9,5 +9,6 @@ build/
 *.log
 __pycache__/
 local_secrets.h
+local_wifi.h
 .env
 dist/

@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ["tests/unit/core_tests.cpp", "tests/unit/sensor_gesture_tests.cpp", "tests/unit/imu_driver_tests.cpp",
            "tests/unit/calibration_storage_tests.cpp", "tests/unit/sensor_migration_tests.cpp",
            "tests/unit/orchestration_tests.cpp",
+           "tests/unit/bench_telemetry_tests.cpp",
+           "tests/unit/bno055_tests.cpp",
            "tests/integration/pipeline_tests.cpp", "simulation/tests/roll_model.cpp",
            "simulation/tests/closed_loop.cpp"]
 
@@ -31,6 +33,7 @@ def main():
         subprocess.run([str(target)], check=True)
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests/unit",
                     "-p", "test_tools.py", "-v"], check=True)
+    subprocess.run([sys.executable, "-m", "unittest", "ground_station.test_udp", "-v"], check=True)
 
 if __name__ == "__main__":
     main()
