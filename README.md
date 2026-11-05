@@ -196,7 +196,19 @@ control integration. Normal images remain `-e glove` and `-e drone`.
 The proposed USB COBS/CRC protocol is separate and described in the
 [architecture](docs/master-plan.md); it is not yet the current 5 Hz serial format.
 
-## Laptop application plan and installation status
+## Laptop SIL laboratory and future ground station
+
+The [laptop-only SIL laboratory](simulation/README.md) now runs native firmware
+algorithms against seeded MPU6050/ADC/RF models and assumed six-degree-of-freedom
+physics. Its [reference report](simulation/reports/reference/REPORT.md) records
+filter, controller, mixer and fault results; the [dashboard capture](simulation/reports/reference/dashboard.png)
+shows the actual rendered Qt/OpenGL application. Run `python -m simulation.validate`
+from the repository root after installing the documented dependencies. This
+does not connect to hardware or make the current controller flight-ready. The
+SIL run found and fixed a one-cycle pitch-envelope validity defect. Existing
+gains, motor-test behavior and disabled flight outputs remain preserved.
+
+The **real USB telemetry ground station** remains a separate future subsystem.
 
 Use Python 3.11, PySide6, pyqtgraph, PyOpenGL, NumPy and pyserial in a dedicated
 virtual environment. There is **no ground_station/main.py or requirements file
@@ -266,14 +278,14 @@ is implemented; that remains a flight blocker.
 | IMU drift | Stationary calibration, warmup, mount/vibration, acceleration rejection; yaw drift has no absolute correction |
 | PID oscillation | Stop test; review signs, saturation, filter delay, measured timing, actuator bandwidth and gains |
 | Serial disconnect | Exclusive port ownership, cable/power, matching baud and protocol, boot/session reset |
-| 3D blank/incorrect | App not implemented yet; later verify OpenGL driver/context and tested frame/quaternion transform |
+| SIL 3D blank/incorrect | Install the documented simulation dependencies, verify local OpenGL support and reset the camera; the separate real telemetry app is not implemented |
 
 [Detailed baseline troubleshooting](docs/troubleshooting.md).
 
 ## Structure, tests and evidence
 
 Existing layout is retained: firmware/{common,glove,drone,motor_test}, tests/{unit,
-integration}, simulation/tests, tools, docs, hardware and diagrams. The separate
+integration}, simulation/{native,config,tests}, tools, docs, hardware and diagrams. The separate
 planned ground_station/{app,dashboard,visualization,telemetry} will reuse the
 versioned wire contract, not flight-loop code. [Final directory plan](docs/master-plan.md).
 

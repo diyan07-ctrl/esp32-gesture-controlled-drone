@@ -7,6 +7,7 @@
 #include "esc.h"
 #include "transport.h"
 #include "safety.h"
+#include "stabilizer.h"
 #include "ultrasonic.h"
 using namespace flight;
 struct Diagnostic {
@@ -24,7 +25,7 @@ void controlTask(void *) {
   Esc esc;
   Safety safety;
   Estimator attitude;
-  Pid rp, pp, yp;
+  Stabilizer control;
   protocol::Receiver rx;
   esc.safeBoot();
   if (cfg::outputsVerified && cfg::powerVerified && cfg::propulsionVerified &&
@@ -35,7 +36,6 @@ void controlTask(void *) {
   bool calibrated = false, initialized = safety.state == State::CALIBRATION;
   bool radioOk = radio::begin();
   uint32_t calStart = millis(), previous = micros(), misses = 0, lastStatus = 0, lastDiag = 0;
-  bool saturated = false;
   uint16_t watchdogFault = 0;
   if (esp_task_wdt_init(1, true) != ESP_OK || esp_task_wdt_add(nullptr) != ESP_OK)
     watchdogFault = Setup;
@@ -98,26 +98,12 @@ void controlTask(void *) {
     float rcmd = rx.command.roll / 1000.0f * cfg::maxTilt,
           pcmd = rx.command.pitch / 1000.0f * cfg::maxTilt,
           ycmd = rx.command.yaw / 1000.0f * cfg::maxYaw;
-    Mix motors;
-    float r = 0, p = 0, y = 0;
-    if (safety.armed() && throttle > 0.02f) {
-      r = rp.update(clamp(cfg::angleKp * (rcmd - attitude.roll), -cfg::maxRate, cfg::maxRate),
-                    sample.gx, dt, saturated);
-      p = pp.update(clamp(cfg::angleKp * (pcmd - attitude.pitch), -cfg::maxRate, cfg::maxRate),
-                    sample.gy, dt, saturated);
-      y = yp.update(ycmd, sample.gz, dt, saturated);
-      motors = mix(throttle, r, p, y);
-      if (!motors.valid) {
-        c.hardFaults |= Numeric;
-        safety.step(c, now);
-      }
-    } else {
-      rp.reset();
-      pp.reset();
-      yp.reset();
-      motors = mix(0, 0, 0, 0);
+    Mix motors = control.update(safety.armed(), throttle, rcmd, pcmd, ycmd, attitude, sample, dt);
+    float r = control.correction[0], p = control.correction[1], y = control.correction[2];
+    if (!motors.valid) {
+      c.hardFaults |= Numeric;
+      safety.step(c, now);
     }
-    saturated = motors.saturated;
     if (uint32_t(micros() - begin) >= cfg::periodUs) {
       ++misses;
       c.hardFaults |= Timing;

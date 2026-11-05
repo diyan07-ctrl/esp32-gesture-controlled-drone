@@ -41,7 +41,7 @@ struct Estimator {
     float ar = std::atan2(s.ay, s.az) * 57.2957795f;
     float ap = std::atan2(-s.ax, std::sqrt(s.ay * s.ay + s.az * s.az)) * 57.2957795f;
     if (!initialized) {
-      if (!gravity)
+      if (!gravity || std::fabs(ap) > 60)
         return false;
       roll = ar;
       pitch = ap;
@@ -54,15 +54,22 @@ struct Estimator {
     float rd = s.gx + std::sin(r) * std::tan(p) * s.gy + std::cos(r) * std::tan(p) * s.gz;
     float pd = std::cos(r) * s.gy - std::sin(r) * s.gz;
     float yd = (std::sin(r) * s.gy + std::cos(r) * s.gz) / std::cos(p);
-    roll += rd * dt;
-    pitch += pd * dt;
-    yaw = std::remainder(yaw + yd * dt, 360.0f);
+    float nextRoll = roll + rd * dt, nextPitch = pitch + pd * dt;
+    float nextYaw = std::remainder(yaw + yd * dt, 360.0f);
     if (gravity) {
       float a = tau / (tau + dt);
-      roll = std::remainder(roll + (1 - a) * std::remainder(ar - roll, 360.0f), 360.0f);
-      pitch = a * pitch + (1 - a) * ap;
+      nextRoll = std::remainder(nextRoll + (1 - a) * std::remainder(ar - nextRoll, 360.0f), 360.0f);
+      nextPitch = a * nextPitch + (1 - a) * ap;
     }
-    return std::isfinite(roll) && std::isfinite(pitch) && std::isfinite(yaw);
+    // Validate the candidate before publication: a boundary crossing must not be
+    // marked healthy for one cycle or poison recovery after rejected input.
+    if (!std::isfinite(nextRoll) || !std::isfinite(nextPitch) || !std::isfinite(nextYaw) ||
+        std::fabs(nextPitch) > 60)
+      return false;
+    roll = nextRoll;
+    pitch = nextPitch;
+    yaw = nextYaw;
+    return true;
   }
 };
 struct Pid {
