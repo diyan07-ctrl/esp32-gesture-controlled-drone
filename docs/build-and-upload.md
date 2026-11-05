@@ -2,6 +2,11 @@
 
 Python 3.11+ and PlatformIO Core 6.1.18 were used locally on Windows. CI uses Python 3.12 on Ubuntu. Root platformio.ini retains the existing espressif32@6.9.0 platform, esp32dev 4 MB board and Arduino ESP32 2.0.17 / IDF 4.4.7 APIs. Required Wire, WiFi and Preferences ship with the framework. No external IMU/PID dependency exists.
 
+Current drone hardware uses **BNO055**. Build/upload `drone_bench` for that
+board; `drone` and `drone_sensors` target the historical MPU6050 configuration.
+The default environment is `drone_bench` and has no ESC output path. See
+[bench build, Wi-Fi provisioning and actual hardware results](drone-bno055-bench.md).
+
 ~~~sh
 python -m venv .venv
 # Activate the virtual environment using your shell's normal command.

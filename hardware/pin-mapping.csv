@@ -1,4 +1,8 @@
 Board,Function,GPIO,Direction,Voltage,Status
+Drone bench,BNO055 SDA,21,bidirectional,3.3V logic,Physically detected at I2C address 0x29; supply and pullups not measured
+Drone bench,BNO055 SCL,22,output,3.3V logic,Physically detected at I2C address 0x29; 100kHz bench setting
+Drone bench,BNO055 GND,,power ground,,Common ESP32 ground; continuity not measured
+Drone bench,BNO055 supply,,power input,,Breakout voltage requirement and actual rail not verified
 Both,I2C SDA,21,bidirectional,3.3V,Verify breakout pullups
 Both,I2C SCL,22,output,3.3V,400kHz candidate
 Both,Status LED,23,output,3.3V,Optional via series resistor

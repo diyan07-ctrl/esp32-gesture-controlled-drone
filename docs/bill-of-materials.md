@@ -1,6 +1,6 @@
 # Current hardware inventory and interface checklist
 
-Owner specifications updated 2026-11-05: MPU6050 on both boards and pot throttle.
+Current revision: BNO055 on the drone, MPU6050 on the glove, pot throttle.
 This is an inventory, not electrical compatibility approval. No current prices
 were researched; historical supplier snapshots do not override this target.
 
@@ -8,7 +8,8 @@ were researched; historical supplier snapshots do not override this target.
 |---|---|---|---|---|---|
 |E01|Existing|F450 frame with PDB|1|Required|Owner specified; current rating and orientation validation pending|
 |E02|Existing|ESP32 DevKit V1 drone; ESP32 glove|2|Required|Drone ESP32-D0WDQ6; 4MB historical detection; verify exact board circuits|
-|E03|Existing|MPU6050 breakout|2|Required|3.3V logic; identity 0x68; breakout supply and pullups unverified|
+|E03|Existing|MPU6050 breakout (glove)|1|Required for glove|3.3V logic; identity 0x68; physical acceptance pending|
+|E11|Existing|BNO055 breakout (drone)|1|Required for drone bench|I2C address 0x29 and CHIP_ID 0xA0 observed; rail and pullups unmeasured|
 |E04|Existing|A2212 1000 KV BLDC|4|Required|Owner specified; exact maker and thrust/current curves unknown|
 |E05|Existing|30 A ESC|4|Required|Exact model; BEC; PWM startup/endpoints/no-signal behavior unknown|
 |E06|Existing|3S LiPo 11.1V 2200mAh 50C|1|Required|Owner marking; not measured continuous capability|

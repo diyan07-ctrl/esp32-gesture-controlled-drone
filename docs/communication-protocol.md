@@ -1,5 +1,61 @@
 # ESP-NOW protocol v2
 
+## Motor-inhibited PID shadow telemetry
+
+The separate `drone_pid_bench` image sends `PS` version 1 datagrams over the
+same Wi-Fi UDP destination as the BNO055 `drone_bench` image. It does not
+consume ESP-NOW commands or send ESC signals. The fixed 194-byte little-endian
+format is defined in `firmware/common/protocol/shadow_telemetry.h`; its
+read-only laptop decoder is `ground_station/shadow_codec.py`. CRC16-CCITT-FALSE
+covers bytes 0–191, followed by the CRC at 192–193.
+
+| Offset | Content |
+|---:|---|
+| 0–7 | `PS`, version 1, mode 0 sensor/1 shadow/2 motor locked, length 194, reserved zero |
+| 8–23 | Sequence, uptime ms, measured PID interval µs, IMU error counter |
+| 24–131 | Roll, pitch, yaw axis records of nine float32 values each: setpoint, measurement, error, P, I, D, output, rate target, measured rate |
+| 132–147 | Four **calculated** normalized motor values, never physical ESC output |
+| 148–187 | Sensor-frame accel, gyro and BNO055 WXYZ quaternion |
+| 188–191 | Calibration byte, sensor-valid byte, two reserved physical-output bytes fixed zero |
+| 192–193 | CRC16 |
+
+The decoder rejects nonzero physical-output bytes and reports ESC PWM and
+actual motor operation unavailable. See [PID bench validation](pid-bench-validation.md).
+
+**Current BNO055 drone bench:** the glove side and encrypted command v2 format
+below are unchanged. The new `drone_bench` image initializes the receiver and
+sends [read-only UDP telemetry](drone-bno055-bench.md). It never acknowledges an
+ARMED state, has no ESC output, and waits for a separately provisioned peer.
+Wi-Fi STA and ESP-NOW share one 2.4 GHz channel; the connected AP channel must
+equal `cfg::radioChannel` before commands are accepted.
+
+## Drone bench UDP telemetry v2
+
+`firmware/common/protocol/telemetry.h` is the fixed 142-byte little-endian
+wire format; `ground_station/telemetry_codec.py` strictly decodes it. CRC16
+CCITT-FALSE covers bytes 0–139 and sits at 140–141. Packet magic `FT`, protocol
+version 2, firmware format version 2 and declared length are checked. Status
+flags distinguish IMU initialization, calibration, valid sample/estimate,
+ESP-NOW initialization, paired peer, Wi-Fi connection and fresh command.
+Physical-output-enabled is reserved and rejected by the bench decoder.
+
+| Offset | Field |
+|---:|---|
+| 0–3 | `FT`, protocol version 2, firmware format 2 |
+| 4–7 | Length 142, status flags |
+| 8–19 | Telemetry sequence, uptime ms, state, channel, gesture, command flags |
+| 20–67 | Twelve uint32 counters: sample interval, execution/max time, missed deadlines, IMU errors, accepted/rejected/lost commands, mailbox drops, send errors, command sequence and age |
+| 68–79 | Throttle, signed roll/pitch/yaw commands, two flex ADC values; only meaningful with fresh link |
+| 80–103 | Acceleration (g) and angular rate (degrees/s), sensor frame |
+| 104–119 | Sensor-frame roll/pitch/yaw rate floats, Wi-Fi reconnect counter |
+| 120–139 | Sensor-frame quaternion WXYZ; BNO055 calibration, system status and error; one reserved byte |
+| 140–141 | CRC16 |
+
+No PID, ESC PWM, motor command, battery voltage, absolute heading or measured
+thrust is fabricated in this packet. Missing validity flags cause the Python
+decoder to mark values unavailable. Sequence gaps count missing UDP datagrams
+at the listener; local arrival rate is not synchronized one-way latency.
+
 Single source: firmware/common/protocol/packet.h. Explicit little-endian integers, no native struct/float ABI. Fixed-peer encrypted unicast on configurable channel 1 by default; peers must share a channel and PMK/LMK. MAC allowlisting and CRC alone are not authentication. Protocol v1 is intentionally rejected.
 
 | Command offset | Bytes | Meaning |

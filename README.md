@@ -4,32 +4,53 @@ Two ESP32 boards provide glove input and an experimental onboard quadcopter
 controller. A separate USB laptop instrument cluster is the next planned subsystem.
 **Engineering bench project; not flight-ready. Output verification gates remain false.**
 
+## Current drone-only BNO055 bench image
+
+The current **PID shadow milestone** adds a separate motor-inhibited
+`drone_pid_bench` target. It runs the existing PID and X-frame mixer with real
+BNO055 data, sends read-only UDP PID telemetry, and starts in sensor mode.
+`MOTOR_LOCKED` sends no ESC signal. The exact installed ESC model and safe pulse
+contract are unknown, so no individual motor test has been run. See the
+[validation guide](docs/pid-bench-validation.md) and
+[actual capture report](docs/pid-bench-capture-2026-11-05.md).
+
+The drone-side IMU has changed to **BNO055**. The glove remains MPU6050 and is
+outside this milestone. The new `drone_bench` image scans GPIO21/22, checks the
+BNO055 identity, reads its six-axis fusion attitude, initializes ESP-NOW, joins
+a configured 2.4 GHz Wi-Fi network and sends CRC-checked UDP telemetry. ESC pins
+25/26/32/33 are inputs. It contains no motor, PID or arming path. The historical
+`drone` and `drone_sensors` MPU6050 targets are retained for regression only and
+must not be flashed onto the BNO055-equipped board. Use
+[drone bench setup and results](docs/drone-bno055-bench.md) for exact PowerShell
+commands, wiring, protocol, actual hardware observations and open tests.
+
 [Repository](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone) ·
 [CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/workflows/firmware-ci.yml) ·
 [Design and phase plan](docs/master-plan.md) · [Hardware audit](docs/hardware-audit-2026-11-05.md)
 
 ## Status and hardware revision
 
-The owner confirmed **MPU6050 on both boards and potentiometer throttle**.
-Current source uses the MPU6050-specific profile and dedicated pot ADC36.
+The earlier migration targeted MPU6050 on both boards and potentiometer throttle.
+The retained historical source uses the MPU6050-specific profile and dedicated pot ADC36.
 The driver deliberately rejects MPU6500. [Migration and sensor acceptance](docs/sensor-migration.md)
 and [actual milestone results](docs/sensor-migration-results.md) distinguish
 software checks from outstanding physical sensor tests.
-The MPU6050/potentiometer migration is implemented for bench validation. The
-desktop application remains planned. Current wiring and calibration instructions
-now target MPU6050; historical validation records retain their original hardware.
+The MPU6050/potentiometer migration remains available for the glove and
+historical builds. Current drone testing uses the BNO055 bench image. The
+desktop instrument cluster remains planned; the read-only UDP console works.
 
 | Subsystem | Implemented baseline | New target / acceptance still needed |
 |---|---|---|
 | Glove | MPU6050, stable flex/pot captures, NVS, filtering/hysteresis, ESP-NOW | Actual sensor/ADC/calibration and gesture bench acceptance |
-| Drone | MPU6050, configurable complementary estimate; existing guarded controller retained | Independent physical IMU tests before further integration |
-| Sensor diagnostics | Independent glove_sensors / drone_sensors images; no radio/ESC initialization | Real identity, signs, calibration, noise and timing records |
+| Drone bench | BNO055 internal IMU-mode fusion, ESP-NOW receiver initialization and Wi-Fi UDP telemetry; outputs disabled | Physical motion signs, stability, dropout and two-board link acceptance |
+| Historical drone | MPU6050 complementary estimate; guarded controller retained | Do not flash on BNO055 hardware; no flight integration yet |
+| Sensor diagnostics | glove_sensors / historical drone_sensors images | Physical glove sensor acceptance remains |
 | Radio | Encoded v2 commands/status, CRC, sessions, encrypted peer | Actual two-board pairing, packet-loss and reconnect evidence |
 | ESC | Separate motor_test, LEDC 50 Hz / 1000–2000 us candidate | Exact ESC compatibility, scope traces and motor checks |
-| Desktop | Diagnostic parser utility | Standalone instrument cluster, 3D model, logging/replay |
+| Desktop | Read-only UDP telemetry console and JSONL logging | Standalone instrument cluster, 3D model and replay |
 | Safety | Guarded default outputs, bench fault latch | Validated airborne failsafe and all flight gates |
 
-## Architecture
+## Historical flight architecture (inactive on current BNO055 bench)
 
 ~~~text
 Flex + potentiometer + glove MPU6050
@@ -68,7 +89,8 @@ Fusion. [Control equations and tuning](docs/flight-control-algorithm.md).
 | ESCs | 30 A | 4 | Identify model, BEC, logic level, PWM endpoints and shutdown |
 | Drone MCU | ESP32 DevKit V1 | 1 | 3.3 V GPIO; regulated supply only |
 | Glove MCU | ESP32 DevKit V1 | 1 | Independent power, ADC1 analog inputs |
-| IMUs | MPU6050 breakouts | 2 | Driver checks identity 0x68; verify supply and I2C pullups |
+| Drone IMU | BNO055 breakout | 1 | Actual I2C address 0x29, identity 0xA0; breakout electrical details pending |
+| Glove IMU | MPU6050 breakout | 1 | Glove driver checks identity 0x68; hardware acceptance pending |
 | Flex sensors | Thumb and index resistive sensors | 2 | Measure flat/bent resistance and endpoints |
 | Potentiometer | Linear analog throttle control | 1 | Actual resistance/travel and fault behavior to verify |
 | Battery | 3S 11.1 V 2200 mAh LiPo | 1 | 12.6 V full; current capability/condition to validate |
@@ -81,7 +103,8 @@ Fusion. [Control equations and tuning](docs/flight-control-algorithm.md).
 | Test equipment | DMM, controlled supply, scope/logic analyzer | Access | Required for electrical/timing acceptance |
 | Loaded test equipment | Guarded thrust/current/thermal fixture | Access | Required before flight validation |
 
-The detailed [BOM](hardware/bom.csv) now reflects MPU6050 and potentiometer.
+The detailed [BOM](hardware/bom.csv) reflects the BNO055 drone and MPU6050
+glove revision. It is an inventory, not electrical compatibility approval.
 HC-SR04 remains an optional historical accessory, disabled by default. No physical
 harness or electrical compatibility is established by the inventory.
 
@@ -92,9 +115,11 @@ isolate propulsion power during wiring, firmware upload and sensor tests.
 
 | Board | Signal | Connection | Status |
 |---|---|---|---|
-| Both | MPU6050 SDA / SCL | GPIO21 / GPIO22 | Retained candidate, pullups to 3.3 V |
-| Both | MPU6050 VCC / GND | Verified compatible 3.3 V / local GND | Inspect actual breakout |
-| Both | MPU6050 AD0 | GND for address 0x68 | Confirm identity separately |
+| Drone bench | BNO055 SDA / SCL | GPIO21 / GPIO22 | Address 0x29 and identity 0xA0 observed; pullups unmeasured |
+| Drone bench | BNO055 supply / GND | Breakout-compatible rail / local GND | Exact rail and breakout not verified |
+| Glove | MPU6050 SDA / SCL | GPIO21 / GPIO22 | Glove hardware acceptance pending |
+| Glove | MPU6050 VCC / GND | Verified compatible 3.3 V / local GND | Inspect actual breakout |
+| Glove | MPU6050 AD0 | GND for address 0x68 | Confirm identity separately |
 | Glove | Thumb / index nodes | GPIO34 / GPIO35 | Separate 3.3 V flex dividers |
 | Glove | Pot wiper | GPIO36 / VP | Implemented dedicated ADC1 input; confirm physical header |
 | Glove | Pot endpoints | 3.3 V / GND | Confirm orientation and electrical travel |
@@ -115,7 +140,7 @@ isolate propulsion power during wiring, firmware upload and sensor tests.
                                verified regulator -- ESP32 supported input
 ESP32 GPIO25/26/32/33 ------------------------------ ESC signals
 ESP32 GND ----------------------------------------- ESC signal grounds
-ESP32 3V3/GND -- MPU6050 supply; GPIO21/22 -- SDA/SCL
+Drone ESP32 compatible rail/GND -- BNO055; GPIO21/22 -- SDA/SCL
 ~~~
 
 [Current sensor wiring contract](docs/sensor-migration.md) is checked against source
@@ -156,6 +181,7 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m platformio run -e drone
 .\.venv\Scripts\python.exe -m platformio run -e motor_test
 .\.venv\Scripts\python.exe -m platformio run -e glove_sensors -e drone_sensors
+.\.venv\Scripts\python.exe -m platformio run -e drone_bench
 .\.venv\Scripts\python.exe tools/run_host_tests.py
 node tools/check_repository.mjs
 ~~~
@@ -175,10 +201,11 @@ sensor-only image on each respective board; COMx below is a placeholder:
 .\.venv\Scripts\python.exe -m platformio device monitor -p COMx -b 115200
 ~~~
 
-Choose `-e drone_sensors` for the independent drone IMU test. Keep props removed,
-propulsion disconnected and output gates false. The diagnostics initialize no ESCs
-or radio. Record separate physical passes on both boards before further flight-
-control integration. Normal images remain `-e glove` and `-e drone`.
+Choose `-e drone_bench` for the connected BNO055 drone. `-e drone_sensors` and
+`-e drone` are retained MPU6050 targets and must not be flashed on that board.
+Keep propulsion disconnected and output gates false. The current drone bench
+image initializes ESP-NOW and Wi-Fi but has no ESC output calls. Record physical
+sensor and communication acceptance before flight-control integration.
 
 ## ESP-NOW setup
 
@@ -208,12 +235,15 @@ does not connect to hardware or make the current controller flight-ready. The
 SIL run found and fixed a one-cycle pitch-envelope validity defect. Existing
 gains, motor-test behavior and disabled flight outputs remain preserved.
 
-The **real USB telemetry ground station** remains a separate future subsystem.
+The current drone bench sends live Wi-Fi UDP telemetry to a read-only
+[`ground_station.udp_listener`](ground_station/udp_listener.py), which validates
+CRC/sequence and can write JSONL logs. See the [bench guide](docs/drone-bno055-bench.md).
+The full instrument-cluster ground station remains a separate future subsystem.
 
 Use Python 3.11, PySide6, pyqtgraph, PyOpenGL, NumPy and pyserial in a dedicated
-virtual environment. There is **no ground_station/main.py or requirements file
-in the current baseline**, so no dashboard launch is claimed. Dependency pinning,
-installation commands and runnable package will accompany that subsystem commit.
+virtual environment. There is no `ground_station/main.py` dashboard yet; the
+current [`requirements.txt`](ground_station/requirements.txt) covers the UDP
+console only. The dashboard will have separate installation instructions.
 [Desktop design and acceptance](docs/ground-station-design.md).
 
 The planned application has a dark instrument cluster, quaternion-driven F450

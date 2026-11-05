@@ -1,5 +1,14 @@
 # Wiring and confirmed hardware
 
+**Current drone bench revision:** the drone ESP32 is connected to a BNO055 on
+GPIO21 SDA and GPIO22 SCL. An actual I2C scan found address `0x29`, and the
+identity register returned `0xA0`. The ESP32's 3.3 V rail, breakout supply
+requirements, pullups, orientation and mounting have not been electrically
+measured. Keep ESCs and motors disconnected. GPIO25/26/32/33 are explicitly
+configured as inputs in the `drone_bench` image. The glove stays MPU6050.
+See [current wiring and test procedure](drone-bno055-bench.md). The tables below
+describe the prior MPU6050 flight-controller baseline and glove wiring.
+
 Owner confirmed two MPU6050s and potentiometer throttle on 2026-11-05, superseding
 the November 3 IMU/throttle configuration. The new source and automated checks
 agree on the GPIOs below; physical continuity, headers, rails and pullups remain
