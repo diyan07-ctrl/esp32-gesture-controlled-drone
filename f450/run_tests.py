@@ -15,7 +15,7 @@ if not include.is_dir():
 output = root.parent / 'build/f450-tests'
 output.mkdir(parents=True, exist_ok=True)
 cxx = [args.zig, 'c++'] if args.zig else ['c++']
-for source in ['test_control.cpp', 'test_stage2.cpp']:
+for source in ['test_control.cpp', 'test_stage2.cpp', 'test_stage3.cpp']:
     exe = output / (Path(source).stem + ('.exe' if os.name == 'nt' else ''))
     subprocess.run(cxx + ['-std=c++17', '-I'+str(include), str(root/source), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

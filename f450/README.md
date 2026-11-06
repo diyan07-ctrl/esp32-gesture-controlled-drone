@@ -2,6 +2,8 @@
 
 This directory is the current laptop-control implementation. Build it separately from the legacy gesture firmware in the parent repository. It has not been flown or bench verified. Exact reference gains are preserved; they are not evidence that these gains stabilize an F450 with BNO055 and 50 Hz ESCs. See [VALIDATION.md](VALIDATION.md) for executed checks and results.
 
+Stage 3 safety policy and propeller-free procedures are in [docs/testing-and-validation.md](docs/testing-and-validation.md). `Safety.h` supplies the sequence/token barrier and latched state checks shared with native tests. The motor rotations below are intended wiring/propulsion directions, **not physically verified directions**.
+
 ## Files and build
 
 - `F450_ESP32_FlightController/F450_ESP32_FlightController.ino`: complete Arduino sketch.
@@ -117,7 +119,7 @@ ALT captures current collective as feedforward and starts its internal target at
 
 Manual mode uses continuous `CMD.throttle` in microseconds, controlled by the GUI slider or Up/Down keys (2 µs per 50 Hz command). ALTITUDE_HOLD ignores this field so manual and altitude controllers cannot fight. MANUAL captures the present collective and clears altitude history; the GUI adopts the reported collective for its slider. SPACE neutralizes roll/pitch/yaw/climb and holds collective; X stops everything. Old clients omitting throttle retain the last manual demand. Legacy BASE remains disarmed-only; a value above 1180 must return to idle before ARM. Choosing an ALT target never changes manual throttle.
 
-State transitions are explicit: BOOT → SENSOR_INITIALIZATION → STARTUP_REFERENCE → DISARMED; ARM passes through ARMING_CHECKS to ARMED or returns a specific rejection. Link/range failure enters FAILSAFE; IMU, motor and timing errors enter FAULT. Both clear armed state and write cutoff. STOP/DISARM enters DISARMED; recovery still requires healthy sensors, idle throttle and a new ARM. BOOT and ARMING_CHECKS can be shorter than a telemetry interval. Battery telemetry reports NOT_INSTALLED: no battery sampling or voltage failsafe is claimed. Invalid PID updates are rejected atomically with INVALID_PID and do not disturb the active gains or renew command freshness.
+State transitions are explicit: BOOT → SENSOR_INITIALIZATION → STARTUP_REFERENCE → DISARMED. ARM checks the existing state before any transition; a valid request passes through ARMING_CHECKS to ARMED. Link/range failure latches FAILSAFE; IMU, PWM, motor, timing and watchdog initialization/feed errors latch FAULT. Both clear armed state and write minimum pulses. STOP/DISARM enters DISARMED from ordinary operation but **cannot clear FAILSAFE or FAULT**, and cannot bypass startup reference capture. Sensor recovery alone cannot rearm. FAULT requires reboot after correcting the cause. FAILSAFE requires fresh neutral commands, idle collective, healthy/fresh IMU, level attitude, AP connection and valid PWM/watchdog; a range-loss latch additionally requires three fresh consecutive range samples. Press “Clear recoverable failsafe” (CLEAR_FAULT with current token), then obtain the new token and press ARM separately. Clearance itself never arms. Battery reports NOT_INSTALLED. Invalid PID updates are rejected atomically without changing gains or renewing pilot freshness.
 
 ## Ground station
 
@@ -135,12 +137,16 @@ Current gains are displayed separately from editable fields. ± buttons change b
 
 UTF-8 JSON datagrams, commands to 192.168.4.1:4210, replies/telemetry to sender IP:4211. This documented JSON protocol replaces the suggested CSV to allow explicit gain arrays and status fields. Max command length 1199 bytes. No authentication beyond AP password; use a dedicated network. First valid envelope claims ownership until disarmed RELEASE/reboot. Restarted clients with a new sequence should send RELEASE first if OLD_SEQUENCE occurs. Only valid newer CMD packets refresh the command-loss timer. Other traffic cannot keep the aircraft armed.
 
-Each command has `type` string and `seq` unsigned 32-bit integer. Sequences must advance with modular difference in (0, 2³¹). Invalid command payloads consume their envelope sequence but do not refresh flight commands. STOP/DISARM are accepted from any sender regardless of sequence. A disarmed RELEASE from the current owner also bypasses sequence comparison to allow a restarted client to recover; the GUI sends RELEASE at startup. ACK: `{"type":"ACK","seq":123,"ok":true,"reason":"OK"}`; rejected commands return ok false and a reason. Malformed JSON/envelopes are ignored.
+Each command has `type` string and `seq` unsigned 32-bit integer. Sequences advance with unsigned modular difference in (0, 2³¹); duplicate, backward and exactly half-range jumps are rejected. Malformed JSON, missing fields and negative/fractional/overflow/bool/string sequences are ignored. Valid envelopes with invalid payloads consume sequence but do not refresh pilot commands. STOP/DISARM always cut off even when stale or foreign, advance the high-water mark only for a newer owner sequence, and invalidate the arming token. They never clear a fault latch. Foreign STOP cannot poison the owner's sequence high-water mark.
+
+ARM now requires `arm_token`, an unsigned 32-bit value returned in ACK/TEL. This narrowly scoped protocol extension is essential: ordering alone cannot identify an unseen higher-sequence ARM created before STOP. Every STOP/DISARM, fault event, successful ARM, successful clearance and RELEASE invalidates the token. A delayed ARM with an old token is rejected even if its sequence is newer. Token initialization is randomized at boot; tokens never wrap/reuse within a boot (exhaustion blocks arming until reboot). A disarmed owner RELEASE can reset sequence tracking for a restarted client, but rotates the token and preserves fault latches. The GUI automatically supplies current tokens and does not retry ARM. A stale/reordered reply can only cause rejection, never bypass the firmware check. Tokens are replay barriers, not authentication. ACK: `{"type":"ACK","seq":123,"ok":true,"reason":"OK","arm_token":42}`. GET/TEL supplies a replacement token before the operator issues a new ARM.
 
 | Type | Additional fields | Meaning |
 |---|---|---|
 | CMD | roll,pitch,yaw,climb: finite numbers −1..1; optional throttle: 1180..1800 µs | pilot input, 50 Hz; throttle ignored during altitude hold |
-| ARM / DISARM / STOP | none | explicit arm / cutoff |
+| ARM | arm_token: uint32 from latest ACK/TEL | explicit arm after all checks; token consumed on success |
+| DISARM / STOP | none | immediate minimum-pulse output; invalidate token, preserve FAULT/FAILSAFE |
+| CLEAR_FAULT | arm_token: current uint32 | explicit recoverable FAILSAFE clearance only; never arms; FAULT requires reboot |
 | GET | none | ACK includes current gains and base |
 | PID | gains: six arrays of three finite numbers, each 0..100 | order roll angle, pitch angle, roll rate, pitch rate, yaw rate, altitude; Kp,Ki,Kd |
 | RESET | none | reference defaults plus zero altitude gains |

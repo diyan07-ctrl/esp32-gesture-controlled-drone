@@ -1,5 +1,7 @@
 # Stage 2 engineering change report
 
+Historical Stage 2 record. Stage 3 sequence barriers, latched recovery policy and ultrasonic recovery supersede the earlier behavior; see `docs/testing-and-validation.md` and `VALIDATION.md` for the current revision.
+
 The existing branch and controller architecture were corrected in place. Hardware pins, access-point settings, original PID defaults, source snapshots and legacy implementation are preserved.
 
 ## Files

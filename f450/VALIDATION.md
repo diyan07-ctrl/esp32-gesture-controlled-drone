@@ -1,4 +1,4 @@
-# Stage 2 validation record
+# Stage 3 validation record
 
 Executed 2026-11-06. No firmware was uploaded. No hardware, interactive GUI or flight validation was performed.
 
@@ -16,19 +16,42 @@ Executed 2026-11-06. No firmware was uploaded. No hardware, interactive GUI or f
 | Manual collective/mode selection | yes | yes | controller/packet tests | no | no |
 | UDP pilot/gain parsing/sequence/deadline | yes | yes | shared helpers | no | no |
 | ESP32 socket ownership/AP/ACK delivery | yes | yes | laptop ACK handler only | no | no |
-| States/arming/timing cutoff/watchdog | yes | yes | deadline helper only; transitions inspected | no | no |
-| Ground station | yes | Python syntax | five unit tests | no | no |
+| STOP/ARM token and sequence barriers | yes | yes | deterministic shared helper tests | no | no |
+| Latched FAULT/FAILSAFE and explicit clearance | yes | yes | deterministic shared state tests | no | no |
+| Three-consecutive ultrasonic recovery | yes | yes | interruption, stale and filter-reset tests | no | no |
+| Watchdog initialization/registration/feed reporting | yes | yes | hardware behavior untested | no | no |
+| Ground station | yes | Python syntax | seven unit tests | no | no |
 | Battery monitor | no hardware installed | not applicable | not applicable | no | no |
 
 ## Executed results
 
-`python f450/run_tests.py --zig .venv/Lib/site-packages/ziglang/zig.exe`: **PASS** for two native executables, five Python tests and Python syntax. Zig 0.13.0 compiles the actual shared firmware headers with pinned ArduinoJson headers, not a replacement Python model.
+`python f450/run_tests.py --zig .venv/Lib/site-packages/ziglang/zig.exe`: results below are from the Stage 3 run. Zig 0.13.0 compiles the actual shared firmware headers with pinned ArduinoJson headers, not a replacement Python model. Three native executables, seven Python tests and Python syntax are checked. No hardware tests were run.
 
 - Original native test: reference PID step/limits, mixer geometry, quaternion identity and heading crossing.
 - Stage 2 native test: exact reference defaults; P/I/D calculations; integral limit; invalid dt; runtime gains; zero/positive/negative roll/pitch/yaw, combined/saturated/NaN mixer inputs; four PWM widths and invalid pulse fallback; nonzero roll/pitch/yaw references, bias, sign equivalence, invalid quaternion and heading wrap; altitude offset/range/freshness/outlier/tilt, unconfigured enable rejection, target increase/decrease, saturation, invalid-data integral freeze and bounded mode transition; actual shared JSON pilot/gain parsers, invalid payloads, atomic gain rejection, sequence wrap and communication deadline.
-- Python: numeric rejection, JSON/sequence wrap, PID acknowledgement, throttle field, manual-mode collective adoption: **5 passed**.
+- Stage 3 native: STOP token barrier, delayed/duplicate ARM, stale/foreign STOP, RELEASE, sequence wrap/half-range, token exhaustion, malformed/invalid envelopes, persistent FAULT/FAILSAFE, repeated ARM, sensor recovery, explicit clearance, three-consecutive height recovery, stale/filter reset and exact PWM counts.
+- Python: numeric rejection, JSON/sequence wrap, PID acknowledgement, throttle field, manual-mode collective adoption, ARM token requirement/consumption, STOP/CLEAR token handling: **7 tests**.
 
-Full PlatformIO compile/link/image generation: **PASS**, espressif32 6.9.0, Arduino-ESP32 2.0.17, ESP32 Dev Module, BNO055 library 1.6.4, ArduinoJson 6.21.5. Final image uses **46,532 bytes RAM**, **791,597 bytes flash**.
+PlatformIO toolchain: espressif32 6.9.0, Arduino-ESP32 2.0.17, ESP32 Dev Module, BNO055 library 1.6.4, ArduinoJson 6.21.5. Final Stage 3 build result and image usage are recorded below.
+
+Final executed summary:
+
+```text
+test_control.cpp: PASS (original PID/mixer/quaternion regressions)
+test_stage2.cpp: PASS (PID, mixer, orientation, altitude, JSON and PWM)
+Stage3 UDP: stop barrier, delayed/duplicate ARM, stale/foreign STOP, release, wrap, half-range, token exhaustion PASS
+Stage3 envelope: missing, negative, overflow, fractional, bool, string sequence and malformed JSON rejected PASS
+Stage3 safety: latched FAULT/FAILSAFE, repeated ARM, sensor recovery, STOP bypass prevention, explicit clearance and fresh ARM PASS
+Stage3 ultrasonic: three consecutive valid, invalid gap, two-valid rejection, implausible, stale restart, filter reset, tilt guard PASS
+Stage3 PWM: 1000/1180/1500/2000 duty counts and zero-correction unscaled mixer PASS
+Ran 7 tests in 0.004s
+OK
+RAM:   14.2% (used 46548 bytes from 327680 bytes)
+Flash: 60.5% (used 793073 bytes from 1310720 bytes)
+[SUCCESS] Took 5.40 seconds
+```
+
+The strict shared envelope parser also rejects concatenated objects, trailing garbage and embedded NUL suffixes while accepting trailing JSON whitespace. Native sequence/state tests exercise the same policy helpers called by the firmware; they do not emulate ESP32 sockets, the scheduler or electrical outputs. The Python tests verify token use and acknowledgement handling without operating an interactive GUI. Full real-UDP dispatch, watchdog stall/reset and physical PWM behavior remain bench work.
 
 | Requested µs | Duty count | Calculated nominal µs |
 |---:|---:|---:|

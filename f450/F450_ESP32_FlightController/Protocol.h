@@ -1,6 +1,33 @@
 #pragma once
 #include <ArduinoJson.h>
 #include "FlightSupport.h"
+inline bool envelope(JsonDocument &d) {
+  return d["seq"].is<uint32_t>() && d["type"].is<const char *>();
+}
+struct DatagramReader {
+  const char *data;
+  size_t size, pos = 0;
+  int read() {
+    return pos < size ? (unsigned char)data[pos++] : -1;
+  }
+  size_t readBytes(char *out, size_t count) {
+    size_t n = 0;
+    while (n < count && pos < size)
+      out[n++] = data[pos++];
+    return n;
+  }
+};
+inline bool parseEnvelope(JsonDocument &d, const char *data, size_t size) {
+  DatagramReader reader{data, size};
+  if (deserializeJson(d, reader) || !envelope(d))
+    return false;
+  while (reader.pos < size) {
+    char c = data[reader.pos++];
+    if (c != ' ' && c != '\r' && c != '\n' && c != '\t')
+      return false;
+  }
+  return true;
+}
 inline bool number(JsonVariant v, float lo, float hi, float &out) {
   if (!v.is<float>())
     return false;
