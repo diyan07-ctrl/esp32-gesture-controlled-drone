@@ -1,4 +1,11 @@
-# Gesture-Controlled F450 Drone
+# F450 Drone Development
+
+The current laptop Wi-Fi UDP controller, Arduino firmware, Python ground station,
+reference PID audit and validation instructions are in **[f450/README.md](f450/README.md)**.
+Gesture control has been dropped for this development stage. The material below
+documents the earlier implementation retained for history.
+
+## Earlier gesture-controlled implementation
 
 Two ESP32 boards provide glove input and an experimental onboard quadcopter
 controller. A separate USB laptop instrument cluster is the next planned subsystem.
