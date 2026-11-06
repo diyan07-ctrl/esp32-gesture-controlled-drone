@@ -11,7 +11,7 @@
 #error "This firmware requires Arduino-ESP32 2.x; verified with 2.0.17"
 #endif
 #include "Protocol.h"
-#include "Safety.h"
+#include "Dispatcher.h"
 // Supported toolchain: Arduino ESP32 2.0.17. Sensor axes: X forward, Y right, Z down.
 const int pins[4] = {25, 26, 32, 33};
 Adafruit_BNO055 bno(55, 0x29);
@@ -26,6 +26,7 @@ AltitudeController altitude;
 SafetyLatch safety;
 FlightState &state = safety.state;
 CommandOrder order;
+CommandSession session;
 const char *stateName() {
   switch (state) {
   case FlightState::BOOT:
@@ -53,10 +54,10 @@ volatile bool echoPending = false, echoHigh = false;
 float attitude[3] = {}, absoluteAngles[3] = {}, rates[3] = {}, bias[3] = {}, pilot[4] = {};
 float outputs[4] = {}, motors[4] = {1000, 1000, 1000, 1000};
 float distanceCm = 0, heightCm = 0, targetCm = 0, baseThrottle = 1180;
-bool ready = false, sensorOK = false, armed = false, altHold = false, ownerSet = false;
+bool ready = false, sensorOK = false, armed = false, altHold = false;
 uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, controlTime = 0, overruns = 0;
 const char *fault = "STARTUP";
-IPAddress owner;
+
 const char *inputBlockReason() {
   if (armed)
     return "ALREADY_ARMED";
@@ -68,7 +69,8 @@ const char *inputBlockReason() {
     return "WAIT_STARTUP_REFERENCE";
   if (!sensorOK || !fresh(micros(), sensorTime, 50000))
     return "IMU_NOT_HEALTHY";
-  if (!fresh(micros(), commandTime, 300000) || WiFi.softAPgetStationNum() == 0)
+  if (!session.active || !session.commandSeen || !fresh(micros(), commandTime, 300000) ||
+      WiFi.softAPgetStationNum() == 0)
     return "COMMAND_NOT_FRESH";
   if (manualThrottleUs > 1180)
     return "THROTTLE_NOT_IDLE";
@@ -244,7 +246,8 @@ void controlTask(void *) {
     }
     if (armed && (!sensorOK || !fresh(now, sensorTime, 50000)))
       stop("IMU_STALE");
-    if (armed && (!fresh(now, commandTime, 300000) || WiFi.softAPgetStationNum() == 0))
+    if (armed && (!session.active || !session.commandSeen || !fresh(now, commandTime, 300000) ||
+                  WiFi.softAPgetStationNum() == 0))
       stop("COMMAND_LOSS");
     if (armed && altHold && !height.healthy(now))
       stop("RANGE_LOSS");
@@ -294,6 +297,136 @@ void parameters(JsonDocument &d) {
   }
   d["base"] = baseThrottle;
 }
+DispatchResult applyCommand(const char *type, JsonDocument &d, JsonDocument &reply) {
+  bool ok = false;
+  const char *reason = "INVALID";
+  if (!strcmp(type, "CMD")) {
+    float v[4];
+    float collective = manualThrottleUs;
+    ok = parsePilot(d, v, collective);
+    if (ok) {
+      if (!altitude.active)
+        manualThrottleUs = collective;
+      for (int i = 0; i < 4; i++)
+        pilot[i] = v[i];
+      commandTime = micros();
+    }
+
+  } else if (!strcmp(type, "ARM")) {
+    reason = armBlockReason();
+    if (!strcmp(reason, "NONE")) {
+      if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
+        reason = "STALE_ARM_TOKEN";
+      else if (authorizeArm(safety, order, d["arm_token"].as<uint32_t>(), true)) {
+        for (auto &p : pid)
+          p = PID{};
+        armed = true;
+        altitude.collective = 1180;
+        fault = "NONE";
+        ok = true;
+      }
+    }
+  } else if (!strcmp(type, "CLEAR_FAULT")) {
+    if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
+      reason = "STALE_ARM_TOKEN";
+    else {
+      ok = safety.clear(!strcmp(inputBlockReason(), "NONE"), height.healthy(micros()));
+      if (ok) {
+        fault = "NONE";
+        order.invalidate();
+      } else
+        reason = state == FlightState::FAULT ? "FAULT_REBOOT_REQUIRED"
+                                             : "CLEAR_REQUIRES_HEALTHY_FAILSAFE";
+    }
+  } else if (!strcmp(type, "PID")) {
+    Gain candidate[6];
+    ok = parseGains(d, candidate);
+    if (!ok)
+      reason = "INVALID_PID";
+    if (ok) {
+      altitude.manual();
+      altitude.validated = false;
+      altHold = false;
+      manualThrottleUs = altitude.collective;
+      memcpy(gains, candidate, sizeof(gains));
+      for (auto &p : pid)
+        p = PID{};
+    }
+    parameters(reply);
+  } else if (!strcmp(type, "RESET")) {
+    memcpy(gains, defaults, sizeof(gains));
+    for (auto &p : pid)
+      p = PID{};
+    altitude.manual();
+    altitude.validated = false;
+    manualThrottleUs = altitude.collective;
+    altHold = false;
+    parameters(reply);
+    ok = true;
+  } else if (!strcmp(type, "BASE")) {
+    float v;
+    ok = !armed && number(d["value"], 1180, 1800, v);
+    if (ok) {
+      baseThrottle = v;
+      manualThrottleUs = v;
+    }
+  } else if (!strcmp(type, "ALT")) {
+    float v;
+    ok = number(d["value"], 6.03, 204.03, v);
+    if (ok) {
+      if (altitude.active) {
+        ok = height.healthy(micros());
+        if (ok)
+          altitude.requestedTarget = v;
+      } else {
+        ok = altitude.enable(v, height, gains[5], micros());
+        if (ok)
+          altitude.requestedTarget = v;
+      }
+    }
+    if (ok) {
+      targetCm = v;
+      altHold = true;
+    } else
+      reason = "ALT_REQUIRES_VALIDATED_GAINS_AND_RANGE";
+  } else if (!strcmp(type, "ALT_VALIDATE")) {
+    ok = !armed && gains[5].p > 0 && height.healthy(micros());
+    if (ok)
+      altitude.validated = true;
+    else
+      reason = "VALIDATE_DISARMED_WITH_GAINS_AND_RANGE";
+  } else if (!strcmp(type, "MANUAL")) {
+    manualThrottleUs = altitude.collective;
+    altitude.manual();
+    altHold = false;
+    ok = true;
+  } else if (!strcmp(type, "SAVE")) {
+    ok = !armed;
+    if (ok) {
+      nv.begin("f450", false);
+      ok = nv.putBytes("gains", gains, sizeof(gains)) == sizeof(gains);
+      nv.end();
+    }
+  }
+  return {ok, ok ? "OK" : reason};
+}
+struct FirmwareHost {
+  bool isArmed() const {
+    return armed;
+  }
+  void stop() {
+    ::stop("PILOT_STOP");
+  }
+  void sessionChanged() {
+    commandTime = 0;
+  }
+  void parameters(JsonDocument &reply) {
+    ::parameters(reply);
+  }
+  DispatchResult command(const char *type, JsonDocument &d, JsonDocument &reply) {
+    return applyCommand(type, d, reply);
+  }
+};
 void packet() {
   int n = udp.parsePacket();
   if (!n)
@@ -308,158 +441,13 @@ void packet() {
   n = udp.read(buffer, 1199);
   if (n <= 0)
     return;
-  buffer[n] = 0;
-  StaticJsonDocument<2048> d;
   StaticJsonDocument<2048> reply;
-  reply["type"] = "ACK";
-  if (!parseEnvelope(d, buffer, n))
-    return;
-  uint32_t seq = d["seq"];
-  const char *type = d["type"];
-  reply["seq"] = seq;
-  bool ok = false;
-  const char *reason = "INVALID";
+  FirmwareHost host;
   xSemaphoreTake(guard, portMAX_DELAY);
-  // STOP is deliberately accepted even if its sequence is old or its sender differs.
-  if (!strcmp(type, "STOP") || !strcmp(type, "DISARM")) {
-    // STOP always cuts off, even if stale/foreign. Invalidate token once in stop().
-    order.observeStop(seq, !ownerSet || ip == owner);
-    stop("PILOT_STOP");
-    ok = true;
-  } else if (ownerSet && ip != owner) {
-    reason = "OWNER_BUSY";
-  } else if (!strcmp(type, "RELEASE") && !armed) {
-    ownerSet = false;
-    order.release();
-    ok = true;
-  } else if (!order.accept(seq)) {
-    reason = "OLD_SEQUENCE";
-  } else {
-    owner = ip;
-    ownerSet = true;
-
-    if (!strcmp(type, "CMD")) {
-      float v[4];
-      float collective = manualThrottleUs;
-      ok = parsePilot(d, v, collective);
-      if (ok) {
-        if (!altitude.active)
-          manualThrottleUs = collective;
-        for (int i = 0; i < 4; i++)
-          pilot[i] = v[i];
-        commandTime = micros();
-      }
-    } else if (!strcmp(type, "GET")) {
-      parameters(reply);
-      ok = true;
-    } else if (!strcmp(type, "ARM")) {
-      reason = armBlockReason();
-      if (!strcmp(reason, "NONE")) {
-        if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
-          reason = "STALE_ARM_TOKEN";
-        else if (authorizeArm(safety, order, d["arm_token"].as<uint32_t>(), true)) {
-          for (auto &p : pid)
-            p = PID{};
-          armed = true;
-          altitude.collective = 1180;
-          fault = "NONE";
-          ok = true;
-        }
-      }
-    } else if (!strcmp(type, "CLEAR_FAULT")) {
-      if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
-        reason = "STALE_ARM_TOKEN";
-      else {
-        ok = safety.clear(!strcmp(inputBlockReason(), "NONE"), height.healthy(micros()));
-        if (ok) {
-          fault = "NONE";
-          order.invalidate();
-        } else
-          reason = state == FlightState::FAULT ? "FAULT_REBOOT_REQUIRED"
-                                               : "CLEAR_REQUIRES_HEALTHY_FAILSAFE";
-      }
-    } else if (!strcmp(type, "PID")) {
-      Gain candidate[6];
-      ok = parseGains(d, candidate);
-      if (!ok)
-        reason = "INVALID_PID";
-      if (ok) {
-        altitude.manual();
-        altitude.validated = false;
-        altHold = false;
-        manualThrottleUs = altitude.collective;
-        memcpy(gains, candidate, sizeof(gains));
-        for (auto &p : pid)
-          p = PID{};
-      }
-      parameters(reply);
-    } else if (!strcmp(type, "RESET")) {
-      memcpy(gains, defaults, sizeof(gains));
-      for (auto &p : pid)
-        p = PID{};
-      altitude.manual();
-      altitude.validated = false;
-      manualThrottleUs = altitude.collective;
-      altHold = false;
-      parameters(reply);
-      ok = true;
-    } else if (!strcmp(type, "BASE")) {
-      float v;
-      ok = !armed && number(d["value"], 1180, 1800, v);
-      if (ok) {
-        baseThrottle = v;
-        manualThrottleUs = v;
-      }
-    } else if (!strcmp(type, "ALT")) {
-      float v;
-      ok = number(d["value"], 6.03, 204.03, v);
-      if (ok) {
-        if (altitude.active) {
-          ok = height.healthy(micros());
-          if (ok)
-            altitude.requestedTarget = v;
-        } else {
-          ok = altitude.enable(v, height, gains[5], micros());
-          if (ok)
-            altitude.requestedTarget = v;
-        }
-      }
-      if (ok) {
-        targetCm = v;
-        altHold = true;
-      } else
-        reason = "ALT_REQUIRES_VALIDATED_GAINS_AND_RANGE";
-    } else if (!strcmp(type, "ALT_VALIDATE")) {
-      ok = !armed && gains[5].p > 0 && height.healthy(micros());
-      if (ok)
-        altitude.validated = true;
-      else
-        reason = "VALIDATE_DISARMED_WITH_GAINS_AND_RANGE";
-    } else if (!strcmp(type, "MANUAL")) {
-      manualThrottleUs = altitude.collective;
-      altitude.manual();
-      altHold = false;
-      ok = true;
-    } else if (!strcmp(type, "SAVE")) {
-      ok = !armed;
-      if (ok) {
-        nv.begin("f450", false);
-        ok = nv.putBytes("gains", gains, sizeof(gains)) == sizeof(gains);
-        nv.end();
-      }
-    } else if (!strcmp(type, "RELEASE")) {
-      ok = !armed;
-      if (ok) {
-        ownerSet = false;
-        order.release();
-      }
-    }
-  }
-  reply["arm_token"] = order.token;
-  reply["ok"] = ok;
-  reply["reason"] = ok ? "OK" : reason;
+  bool respond = dispatchDatagram(buffer, n, uint32_t(ip), session, order, host, reply);
   xSemaphoreGive(guard);
-  sendDoc(reply, ip);
+  if (respond)
+    sendDoc(reply, ip);
 }
 void telemetry() {
   StaticJsonDocument<3000> d;
@@ -510,15 +498,20 @@ void telemetry() {
   d["overruns"] = overruns;
   d["watchdog"] = watchdogOK ? "REGISTERED_1S" : "FAILED";
   d["control_age_us"] = micros() - controlTime;
-  IPAddress dest = owner;
+  IPAddress dest(session.owner);
+  bool hasOwner = session.active;
+  d["session"] = session.generation;
+  d["owner_active"] = session.active;
+  d["owned"] = session.active;
   xSemaphoreGive(guard);
-  if (ownerSet)
+  if (hasOwner)
     sendDoc(d, dest);
 }
 void setup() {
   Serial.begin(115200);
   guard = xSemaphoreCreateMutex();
   order.token = esp_random();
+  session.generation = esp_random();
   memcpy(gains, defaults, sizeof(gains));
   for (int i = 0; i < 4; i++) {
     pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;

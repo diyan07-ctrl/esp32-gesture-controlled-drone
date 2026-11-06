@@ -1,4 +1,4 @@
-# Stage 3 safety and physical verification
+# Stage 4 protocol, safety and physical verification
 
 This is the current F450 procedure. Directions are intended configuration, not observed physical results. Legacy gesture firmware uses a separate configuration and must not be used to infer this mapping.
 
@@ -17,7 +17,37 @@ FRD +roll decreases M1/M4 and increases M2/M3; +pitch increases M1/M2 and decrea
 
 Commands are JSON to 192.168.4.1:4210, ACK/TEL to sender:4211; AP F450_DRONE / F450Drone2026. `seq` must be a JSON unsigned 32-bit integer, never a bool, string, fractional, negative or overflowing value. Only strictly forward differences less than 2³¹ are newer. Wrap 0xffffffff→0 is valid; exactly half-range is ambiguous and rejected. Invalid envelopes, concatenated JSON objects and trailing garbage/embedded NUL suffixes are ignored; ordinary trailing whitespace is accepted. Invalid payloads consume their accepted sequence without renewing CMD freshness.
 
-STOP/DISARM execute immediately without ordinary ordering restrictions. A newer owner STOP advances the high-water mark; stale/foreign STOP never moves it backward or replaces it with another sender's sequence. Every STOP changes the arm token and clears armed output. Thus an old ARM with sequence before STOP fails ordering, and an unseen ARM with sequence after STOP but generated earlier fails its token check. Duplicate STOP may invalidate the token again; retrieve the new value before another explicit ARM. RELEASE can reset sequence only while disarmed and from the owner; it changes the token and cannot clear a latch. Boot tokens are randomized; tokens cannot wrap/reuse within a boot. This is not a network authentication scheme.
+STOP/DISARM execute immediately without ordinary ordering restrictions. A newer active-owner STOP advances the high-water mark; stale/foreign STOP never moves it backward or replaces it with another sender's sequence. Every STOP changes the arm token and clears armed output. Thus an old ARM with sequence before STOP fails ordering, and an unseen ARM with sequence after STOP but generated earlier fails its token check. Duplicate STOP may invalidate the token again; retrieve the new value before another explicit ARM. Boot tokens are randomized and never wrap/reuse within a boot. These barriers are not network authentication.
+
+Stage 4 ownership lifecycle is read-only GET discovery → matching-generation HELLO → ordered owner commands → valid RELEASE. Discovery returns session, owner_active, owned, last_seq, seq_set and arm_token alongside normal fields; it cannot change the sequence window. No ordinary packet claims an empty slot. HELLO while unowned accepts a fresh uint32 starting sequence; current-owner HELLO while disarmed must advance its existing sequence. Foreign HELLO while occupied and all HELLO while armed are rejected. Success rotates the arm token and requires a fresh valid CMD. Acquisition/resume never clears FAULT/FAILSAFE or arms.
+
+Every owner command carries `session` (uint32 generation), `type` and `seq`. RELEASE checks ownership, generation, disarmed status and newer sequence before changing anything. Rejected RELEASE leaves owner, sequence high-water/set flags, generation, ARM token, pilot freshness and safety state unchanged. A valid RELEASE clears the owner/window/fresh-CMD flag, retires the generation, rotates the token and leaves motors/safety untouched. Repeated/delayed release while empty is NO_SESSION; after reacquisition it is rejected by retired generation or foreign IP. Old owner CMD/ARM/HELLO cannot act on the empty or newly acquired session, including same-IP reacquisition. Generations increment on release without reuse; generation/token exhaustion requires reboot. New laptops discover the current generation and explicitly HELLO. A restarted current owner can use discovery's last_seq to resume with last_seq+1, including wrap. There is no foreign-IP takeover or implicit timeout release.
+
+The laptop no longer sends RELEASE at startup. It confirms ownership only on its matching successful HELLO ACK, sends pilot packets only when confirmed, and marks successful release unowned. A rejected release retains ownership only if the response confirms the same generation and owner IP. A release/HELLO timeout leaves ownership unconfirmed; no automatic ARM follows. Correlated ACKs synchronize lifecycle; unrelated old ACKs cannot restore/drop confirmed ownership. The Connect / resume button restarts discovery while disarmed. Close still sends best-effort STOP and RELEASE without guaranteeing delivery. Use one pilot process per owner IP; identifiers are not cryptographic user identities. Upgrade laptop and firmware together.
+
+## Complete dispatcher authorization audit
+
+Every row requires a valid uint32-sequence envelope. Missing/malformed fields required by that row are rejected before actions. Owner commands require current owner IP and generation. All normally ordered duplicates/delays are rejected before action; invalid action payloads consume their accepted sequence, except rejected RELEASE which never mutates order.
+
+| Command | Authorization / ordering | Safety / motor effects | Duplicate or delayed behavior |
+|---|---|---|---|
+| GET without session | any IP, valid envelope; read-only, no sequence-window mutation | query only | harmless repeat; no ownership or heartbeat |
+| GET with session | current owner/generation, newer seq | query only | rejected by normal ordering |
+| HELLO | unowned matching generation or current owner resume; disarmed; resume requires newer seq | never arms/clears latch; resets CMD freshness and rotates ARM token | duplicate active-session HELLO rejected; retired generation cannot reclaim slot |
+| STOP / DISARM | any IP, valid envelope; ordering exception | immediate minimum pulses; preserve latches; rotate ARM token | always safe-stop; foreign/stale sequence cannot poison owner's window |
+| RELEASE | current owner/generation, disarmed, newer seq | retire session; no safety/output change; never clears faults | all rejection paths side-effect free; no active owner means NO_SESSION |
+| CMD | owner/generation/newer seq; valid pilot/throttle payload | pilot setpoints; collective only in manual mode; cannot arm | duplicates/invalid data cannot renew 300 ms deadline |
+| ARM | owner/generation/newer seq plus fresh CMD, correct arm_token and all existing checks | explicit DISARMED→ARMED only | session/token/sequence barriers and latch checks prevent replay |
+| CLEAR_FAULT | owner/generation/newer seq, current arm_token, healthy recoverable FAILSAFE | clears to DISARMED only, rotates token; FAULT requires reboot | cannot automatically arm; later ARM must be explicit |
+| MANUAL | owner/generation/newer seq | preserves current collective during mode transition; no arm | replay blocked before mode callback |
+| ALT | owner/generation/newer seq plus valid target, range and reviewed gains | altitude mode/target; no arm | replay blocked before mode callback |
+| ALT_VALIDATE | owner/generation/newer seq, disarmed, nonzero Kp, healthy range | review acknowledgement only; no arm | replay blocked |
+| PID / RESET | owner/generation/newer seq; PID numeric validation | update gains/history/mode as previously implemented; may affect later armed outputs | rejected before callbacks when replayed; PID atomic validation preserved |
+| BASE | owner/generation/newer seq, disarmed, valid µs value | manual demand configuration only | replay blocked |
+| SAVE | owner/generation/newer seq, disarmed | gains to NVS only | replay blocked |
+| Unknown type | owner/generation/newer seq | INVALID; no action | valid envelope consumes seq, no heartbeat |
+
+There is no separate heartbeat command: only successful CMD refreshes commandTime and session.commandSeen. HELLO/GET/RELEASE/PID/CLEAR do not keep an aircraft armed. Control-task timeout, no AP client, sensor faults and STOP behavior remain unchanged. Physical PID/altitude performance is not inferred from protocol tests.
 
 ARM requires `arm_token` from current ACK/TEL plus current state/input checks. Successful ARM consumes it. CLEAR_FAULT requires the current token, healthy inputs and a recoverable FAILSAFE; successful clearance consumes it and leaves DISARMED. A new token and separate explicit ARM are then required. GUI supports this automatically on button presses, never automatic retries. Out-of-order telemetry/ACK tokens can cause rejection; query again. No packet received before a stop/clear may use the resulting token.
 
@@ -58,6 +88,6 @@ No steps above were performed during software development.
 
 ## Reproducible software and later hardware tests
 
-Run `python f450/run_tests.py` with c++ on PATH, or add `--zig PATH_TO_ZIG`. It runs original control tests, Stage 2 tests, Stage 3 sequence/state/recovery/PWM tests, Python tests and syntax checks. Install dependencies with `python -m platformio pkg install -d f450`; build with `python -m platformio run -d f450`. See [../VALIDATION.md](../VALIDATION.md) for actual output and final image sizes.
+Run `python f450/run_tests.py` with c++ on PATH, or add `--zig PATH_TO_ZIG`. It runs original control tests, Stage 2 regressions, Stage 3 safety/recovery/PWM, Stage 4 production-dispatcher JSON tests, Python tests and syntax checks. Install dependencies with `python -m platformio pkg install -d f450`; build with `python -m platformio run -d f450`. See [../VALIDATION.md](../VALIDATION.md) for actual output and final image sizes. Native Stage 4 tests use production ingress/authorization/RELEASE/ACK logic with native hardware/control-action adapters; they are not ESP32 network or electrical tests.
 
 Then physically test startup motion, IMU unplug, invalid echoes, full three-sample recovery, fault-latch clearance, delayed ARM/STOP ordering over real UDP, stale CMD cutoff, NVS save/reboot and mode transitions. Measure PWM on all channels during STOP, reset and forced watchdog stall, and measure loop jitter under traffic. Manual throttle, explicit altitude mode, target/collective ramps, PID editing and NVS persistence are preserved. Altitude gains remain unconfigured until entered and reviewed; no bench-validated gains are supplied. Keep software verification, bench results and any later controlled flight results as separate records.
