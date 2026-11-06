@@ -32,6 +32,25 @@ class GroundStationTests(unittest.TestCase):
         self.assertNotIn(4, station.pending)
         station.entries[0][0].set.assert_called_with('1.5')
 
+    def test_continuous_throttle_wire_format(self):
+        station = Station.__new__(Station)
+        station.seq = 42
+        station.sock = Mock()
+        station.pending = {}
+        station.send('CMD', roll=0., pitch=0., yaw=0., climb=0., throttle=1400.)
+        raw, _ = station.sock.sendto.call_args.args
+        self.assertEqual(json.loads(raw)['throttle'], 1400.)
+
+    def test_manual_transition_adopts_actual_collective(self):
+        station = Station.__new__(Station)
+        station.seq = 1
+        station.sock = Mock()
+        station.pending = {}
+        station.throttle = Mock()
+        station.telemetry = {'collective_us': 1432.5}
+        station.send('MANUAL')
+        station.throttle.set.assert_called_once_with(1432.5)
+
 
 if __name__ == '__main__':
     unittest.main()

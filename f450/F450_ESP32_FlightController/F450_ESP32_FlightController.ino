@@ -6,7 +6,11 @@
 #include <ArduinoJson.h>
 #include <Adafruit_BNO055.h>
 #include <esp_task_wdt.h>
-#include "Control.h"
+#include <esp_arduino_version.h>
+#if ESP_ARDUINO_VERSION_MAJOR != 2
+#error "This firmware requires Arduino-ESP32 2.x; verified with 2.0.17"
+#endif
+#include "Protocol.h"
 // Supported toolchain: Arduino ESP32 2.0.17. Sensor axes: X forward, Y right, Z down.
 const int pins[4] = {25, 26, 32, 33};
 Adafruit_BNO055 bno(55, 0x29);
@@ -15,7 +19,43 @@ Preferences nv;
 SemaphoreHandle_t guard;
 Gain gains[6];
 PID pid[6];
-Quaternion reference;
+StartupReference startup;
+HeightEstimator height;
+AltitudeController altitude;
+enum class FlightState {
+  BOOT,
+  SENSOR_INITIALIZATION,
+  STARTUP_REFERENCE,
+  DISARMED,
+  ARMING_CHECKS,
+  ARMED,
+  FAILSAFE,
+  FAULT
+};
+FlightState state = FlightState::BOOT;
+const char *stateName() {
+  switch (state) {
+  case FlightState::BOOT:
+    return "BOOT";
+  case FlightState::SENSOR_INITIALIZATION:
+    return "SENSOR_INITIALIZATION";
+  case FlightState::STARTUP_REFERENCE:
+    return "STARTUP_REFERENCE";
+  case FlightState::DISARMED:
+    return "DISARMED";
+  case FlightState::ARMING_CHECKS:
+    return "ARMING_CHECKS";
+  case FlightState::ARMED:
+    return "ARMED";
+  case FlightState::FAILSAFE:
+    return "FAILSAFE";
+  default:
+    return "FAULT";
+  }
+}
+float manualThrottleUs = 1180;
+bool pwmOK = true;
+volatile bool echoPending = false, echoHigh = false;
 float attitude[3] = {}, absoluteAngles[3] = {}, rates[3] = {}, bias[3] = {}, pilot[4] = {};
 float outputs[4] = {}, motors[4] = {1000, 1000, 1000, 1000};
 float distanceCm = 0, heightCm = 0, targetCm = 0, baseThrottle = 1180;
@@ -25,21 +65,68 @@ uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, lastSequence = 0, contr
          overruns = 0;
 const char *fault = "STARTUP";
 IPAddress owner;
+const char *armBlockReason() {
+  if (armed)
+    return "ALREADY_ARMED";
+  if (!pwmOK)
+    return "PWM_INITIALIZATION";
+  if (!ready)
+    return "WAIT_STARTUP_REFERENCE";
+  if (!sensorOK || !fresh(micros(), sensorTime, 50000))
+    return "IMU_NOT_HEALTHY";
+  if (!fresh(micros(), commandTime, 300000) || WiFi.softAPgetStationNum() == 0)
+    return "COMMAND_NOT_FRESH";
+  if (manualThrottleUs > 1180)
+    return "THROTTLE_NOT_IDLE";
+  for (float v : pilot)
+    if (fabsf(v) >= .01)
+      return "PILOT_NOT_NEUTRAL";
+  if (fabsf(attitude[0]) >= 5 || fabsf(attitude[1]) >= 5)
+    return "ATTITUDE_NOT_LEVEL";
+  return "NONE";
+}
 volatile uint32_t echoRise = 0, echoWidth = 0;
 portMUX_TYPE echoMux = portMUX_INITIALIZER_UNLOCKED;
 void IRAM_ATTR echoISR() {
   portENTER_CRITICAL_ISR(&echoMux);
-  if (digitalRead(19))
-    echoRise = micros();
-  else
-    echoWidth = micros() - echoRise;
+  if (echoPending) {
+    if (digitalRead(19)) {
+      echoRise = micros();
+      echoHigh = true;
+    } else if (echoHigh) {
+      echoWidth = micros() - echoRise;
+      echoPending = false;
+      echoHigh = false;
+    }
+  }
   portEXIT_CRITICAL_ISR(&echoMux);
 }
 void pwm() {
+  uint32_t duties[4];
+  bool valid = true;
   for (int i = 0; i < 4; i++)
-    ledcWrite(i, lroundf(motors[i] * 65536.f / 20000.f));
+    valid = pulseToDuty(motors[i], duties[i]) && valid;
+  if (!valid) {
+    armed = false;
+    state = FlightState::FAULT;
+    fault = "INVALID_MOTOR";
+    altitude.manual();
+    altHold = false;
+    for (int i = 0; i < 4; i++) {
+      motors[i] = 1000;
+      pulseToDuty(1000, duties[i]);
+    }
+  }
+  for (int i = 0; i < 4; i++)
+    ledcWrite(i, duties[i]);
 }
 void stop(const char *why) {
+  state = (!strcmp(why, "PILOT_STOP"))                                   ? FlightState::DISARMED
+          : (!strcmp(why, "COMMAND_LOSS") || !strcmp(why, "RANGE_LOSS")) ? FlightState::FAILSAFE
+                                                                         : FlightState::FAULT;
+  altitude.manual();
+  altitude.collective = 1180;
+  manualThrottleUs = 1180;
   armed = false;
   altHold = false;
   fault = why;
@@ -68,9 +155,11 @@ int16_t word(uint8_t *b) {
 void sensorTask(void *) {
   // Adafruit initialization and checked register acquisition use its default unit configuration.
   bool initialized = bno.begin(OPERATION_MODE_IMUPLUS);
-  uint32_t count = 0;
-  float sum[3] = {};
-  Quaternion anchor;
+  xSemaphoreTake(guard, portMAX_DELAY);
+  state = initialized ? FlightState::STARTUP_REFERENCE : FlightState::FAULT;
+  if (!initialized)
+    fault = "IMU_INITIALIZATION";
+  xSemaphoreGive(guard);
   TickType_t tick = xTaskGetTickCount();
   for (;;) {
     uint8_t qb[8], gb[6], ab[6], status[2];
@@ -82,14 +171,7 @@ void sensorTask(void *) {
     if (valid) {
       q = {word(qb) / 16384.f, word(qb + 2) / 16384.f, word(qb + 4) / 16384.f,
            word(qb + 6) / 16384.f};
-      float norm = sqrtf(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
-      valid = isfinite(norm) && norm > .95 && norm < 1.05;
-      if (valid) {
-        q.w /= norm;
-        q.x /= norm;
-        q.y /= norm;
-        q.z /= norm;
-      }
+      valid = q.normalize();
       for (int i = 0; i < 3; i++) {
         g[i] = word(gb + 2 * i) / 16.f;
         acc[i] = word(ab + 2 * i) / 100.f;
@@ -100,42 +182,24 @@ void sensorTask(void *) {
     if (valid) {
       sensorTime = micros();
       q.angles(absoluteAngles);
-      if (!ready) {
-        float normA = sqrtf(acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2]);
-        bool still =
-            fabsf(normA - 9.80665f) < .5 && fabsf(g[0]) < 3 && fabsf(g[1]) < 3 && fabsf(g[2]) < 3;
-        if (count) {
-          float delta[3];
-          (anchor.inverse() * q).angles(delta);
-          still = still && fabsf(delta[0]) < 1 && fabsf(delta[1]) < 1 && fabsf(delta[2]) < 1;
-        }
-        if (!still) {
-          count = 0;
-          for (float &s : sum)
-            s = 0;
-        } else {
-          if (!count)
-            anchor = q;
-          for (int i = 0; i < 3; i++)
-            sum[i] += g[i];
-          if (++count >= 200) {
-            reference = q;
-            for (int i = 0; i < 3; i++)
-              bias[i] = sum[i] / count;
-            ready = true;
-            fault = "NONE";
-          }
-        }
+      bool wasReady = ready;
+      valid = startup.update(q, g, acc);
+      sensorOK = valid;
+      ready = startup.ready;
+      if (!wasReady && ready) {
+        fault = "NONE";
+        state = FlightState::DISARMED;
       }
-      if (ready) {
-        (reference.inverse() * q).angles(attitude);
-        for (int i = 0; i < 3; i++)
+      if (ready && valid) {
+        (startup.reference.inverse() * q).angles(attitude);
+        for (int i = 0; i < 3; i++) {
+          bias[i] = startup.bias[i];
           rates[i] = g[i] - bias[i];
+        }
       }
     } else {
-      count = 0;
-      for (float &s : sum)
-        s = 0;
+      if (!ready)
+        startup.reset();
       if (armed)
         stop("IMU_INVALID");
     }
@@ -153,17 +217,18 @@ void controlTask(void *) {
     float dt = (now - previous) * 1e-6f;
     previous = now;
     xSemaphoreTake(guard, portMAX_DELAY);
+    now = micros();
     controlTime = now;
-    if (dt > .008f) {
+    if (dt <= 0 || dt > .008f) {
       overruns++;
       if (armed)
         stop("CONTROL_TIMING");
     }
-    if (armed && (!sensorOK || now - sensorTime > 50000))
+    if (armed && (!sensorOK || !fresh(now, sensorTime, 50000)))
       stop("IMU_STALE");
-    if (armed && (now - commandTime > 300000 || WiFi.softAPgetStationNum() == 0))
+    if (armed && (!fresh(now, commandTime, 300000) || WiFi.softAPgetStationNum() == 0))
       stop("COMMAND_LOSS");
-    if (armed && altHold && now - rangeTime > 250000)
+    if (armed && altHold && !height.healthy(now))
       stop("RANGE_LOSS");
     if (armed && (fabsf(attitude[0]) > 65 || fabsf(attitude[1]) > 65))
       stop("ATTITUDE_LIMIT");
@@ -174,23 +239,18 @@ void controlTask(void *) {
       outputs[0] = pid[2].step(dr - rates[0], gains[2], dt);
       outputs[1] = pid[3].step(dp - rates[1], gains[3], dt);
       outputs[2] = pid[4].step(pilot[2] * 75 - rates[2], gains[4], dt);
-      outputs[3] = 0;
-      if (altHold) {
-        targetCm = limit(targetCm + pilot[3] * 30 * dt, 6.03, 204.03);
-        outputs[3] = pid[5].step(targetCm - heightCm, gains[5], dt);
-      }
-      mix(fminf(1800, baseThrottle + outputs[3]), outputs[0], outputs[1], outputs[2], motors);
+      if (!altitude.step(manualThrottleUs, pilot[3], gains[5], height, now, dt))
+        stop("RANGE_LOSS");
+      altHold = altitude.active;
+      targetCm = altitude.target;
+      outputs[3] = altitude.correction;
+      if (armed && !mix(altitude.collective, outputs[0], outputs[1], outputs[2], motors))
+        stop("INVALID_MOTOR");
       pwm();
     }
     xSemaphoreGive(guard);
     esp_task_wdt_reset();
   }
-}
-bool number(JsonVariant v, float lo, float hi, float &out) {
-  if (!v.is<float>())
-    return false;
-  out = v.as<float>();
-  return isfinite(out) && out >= lo && out <= hi;
 }
 void sendDoc(JsonDocument &d, IPAddress ip) {
   char buffer[3000];
@@ -245,7 +305,7 @@ void packet() {
     ownerSet = false;
     seqSet = false;
     ok = true;
-  } else if (seqSet && (int32_t)(seq - lastSequence) <= 0) {
+  } else if (seqSet && !newer(seq, lastSequence)) {
     reason = "OLD_SEQUENCE";
   } else {
     owner = ip;
@@ -254,9 +314,11 @@ void packet() {
     lastSequence = seq;
     if (!strcmp(type, "CMD")) {
       float v[4];
-      ok = number(d["roll"], -1, 1, v[0]) && number(d["pitch"], -1, 1, v[1]) &&
-           number(d["yaw"], -1, 1, v[2]) && number(d["climb"], -1, 1, v[3]);
+      float collective = manualThrottleUs;
+      ok = parsePilot(d, v, collective);
       if (ok) {
+        if (!altitude.active)
+          manualThrottleUs = collective;
         for (int i = 0; i < 4; i++)
           pilot[i] = v[i];
         commandTime = micros();
@@ -265,25 +327,34 @@ void packet() {
       parameters(reply);
       ok = true;
     } else if (!strcmp(type, "ARM")) {
-      ok = ready && sensorOK && micros() - sensorTime < 50000 && micros() - commandTime < 300000;
-      for (float v : pilot)
-        ok = ok && fabsf(v) < .01;
-      ok = ok && fabsf(attitude[0]) < 5 && fabsf(attitude[1]) < 5;
-      if (ok) {
-        for (auto &p : pid)
-          p = PID{};
-        armed = true;
-        fault = "NONE";
-      } else
-        reason = "ARM_PRECONDITIONS";
+      if (armed) {
+        reason = "ALREADY_ARMED";
+      } else {
+        state = FlightState::ARMING_CHECKS;
+        reason = armBlockReason();
+        ok = !strcmp(reason, "NONE");
+        if (ok) {
+          for (auto &p : pid)
+            p = PID{};
+          armed = true;
+          state = FlightState::ARMED;
+          altitude.collective = 1180;
+          fault = "NONE";
+        } else {
+          state = FlightState::DISARMED;
+          fault = reason;
+        }
+      }
     } else if (!strcmp(type, "PID")) {
       Gain candidate[6];
-      JsonArray a = d["gains"].as<JsonArray>();
-      ok = a.size() == 6;
-      for (int i = 0; i < 6 && ok; i++)
-        ok = a[i].size() == 3 && number(a[i][0], 0, 100, candidate[i].p) &&
-             number(a[i][1], 0, 100, candidate[i].i) && number(a[i][2], 0, 100, candidate[i].d);
+      ok = parseGains(d, candidate);
+      if (!ok)
+        reason = "INVALID_PID";
       if (ok) {
+        altitude.manual();
+        altitude.validated = false;
+        altHold = false;
+        manualThrottleUs = altitude.collective;
         memcpy(gains, candidate, sizeof(gains));
         for (auto &p : pid)
           p = PID{};
@@ -293,26 +364,48 @@ void packet() {
       memcpy(gains, defaults, sizeof(gains));
       for (auto &p : pid)
         p = PID{};
+      altitude.manual();
+      altitude.validated = false;
+      manualThrottleUs = altitude.collective;
       altHold = false;
       parameters(reply);
       ok = true;
     } else if (!strcmp(type, "BASE")) {
       float v;
       ok = !armed && number(d["value"], 1180, 1800, v);
-      if (ok)
+      if (ok) {
         baseThrottle = v;
+        manualThrottleUs = v;
+      }
     } else if (!strcmp(type, "ALT")) {
       float v;
-      ok = number(d["value"], 6.03, 204.03, v) && micros() - rangeTime < 250000 && gains[5].p > 0;
+      ok = number(d["value"], 6.03, 204.03, v);
+      if (ok) {
+        if (altitude.active) {
+          ok = height.healthy(micros());
+          if (ok)
+            altitude.requestedTarget = v;
+        } else {
+          ok = altitude.enable(v, height, gains[5], micros());
+          if (ok)
+            altitude.requestedTarget = v;
+        }
+      }
       if (ok) {
         targetCm = v;
         altHold = true;
-        pid[5] = PID{};
       } else
-        reason = "ALT_REQUIRES_RANGE_AND_KP";
+        reason = "ALT_REQUIRES_VALIDATED_GAINS_AND_RANGE";
+    } else if (!strcmp(type, "ALT_VALIDATE")) {
+      ok = !armed && gains[5].p > 0 && height.healthy(micros());
+      if (ok)
+        altitude.validated = true;
+      else
+        reason = "VALIDATE_DISARMED_WITH_GAINS_AND_RANGE";
     } else if (!strcmp(type, "MANUAL")) {
+      manualThrottleUs = altitude.collective;
+      altitude.manual();
       altHold = false;
-      pid[5] = PID{};
       ok = true;
     } else if (!strcmp(type, "SAVE")) {
       ok = !armed;
@@ -353,12 +446,28 @@ void telemetry() {
   d["distance"] = distanceCm;
   d["height"] = heightCm;
   d["target"] = targetCm;
+  d["requested_target"] = altitude.requestedTarget;
   d["alt_hold"] = altHold;
   d["armed"] = armed;
   d["reference_ready"] = ready;
   d["imu_ok"] = sensorOK;
   d["imu_age_ms"] = (micros() - sensorTime) / 1000;
-  d["range_ok"] = micros() - rangeTime < 250000;
+  d["range_ok"] = height.healthy(micros());
+  d["range_age_ms"] = (micros() - height.time) / 1000;
+  d["range_rejected"] = height.rejected;
+  d["alt_error"] = altitude.active ? altitude.error : 0;
+  d["alt_configured"] = gains[5].p > 0;
+  d["alt_validated"] = altitude.validated;
+  d["mode"] = altitude.active ? "ALTITUDE_HOLD" : "MANUAL_THROTTLE";
+  d["collective_us"] = altitude.collective;
+  d["manual_throttle_us"] = manualThrottleUs;
+  d["state"] = stateName();
+  d["reference_samples"] = startup.count;
+  d["battery_status"] = "NOT_INSTALLED";
+  d["pwm_ok"] = pwmOK;
+  d["arming_block_reason"] = armBlockReason();
+  d["arming_available"] = !strcmp(armBlockReason(), "NONE");
+
   d["command_age_ms"] = (micros() - commandTime) / 1000;
   d["stations"] = WiFi.softAPgetStationNum();
   d["fault"] = fault;
@@ -375,7 +484,7 @@ void setup() {
   guard = xSemaphoreCreateMutex();
   memcpy(gains, defaults, sizeof(gains));
   for (int i = 0; i < 4; i++) {
-    ledcSetup(i, 50, 16);
+    pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;
     ledcAttachPin(pins[i], i);
   }
   pwm();
@@ -391,6 +500,7 @@ void setup() {
       memcpy(gains, saved, sizeof(gains));
   }
   nv.end();
+  state = FlightState::SENSOR_INITIALIZATION;
   Wire.begin(21, 22);
   Wire.setClock(400000);
   Wire.setTimeOut(5);
@@ -411,6 +521,11 @@ void loop() {
   uint32_t now = micros();
   if (now - trigger >= 60000) {
     trigger = now;
+    portENTER_CRITICAL(&echoMux);
+    echoPending = true;
+    echoHigh = false;
+    echoWidth = 0;
+    portEXIT_CRITICAL(&echoMux);
     digitalWrite(18, HIGH);
     delayMicroseconds(10);
     digitalWrite(18, LOW);
@@ -420,15 +535,28 @@ void loop() {
   width = echoWidth;
   echoWidth = 0;
   portEXIT_CRITICAL(&echoMux);
-  if (width) {
-    float cm = width * .0343f / 2;
-    if (cm >= 2 && cm <= 200) {
-      xSemaphoreTake(guard, portMAX_DELAY);
-      distanceCm = cm;
-      heightCm = cm + 4.03f;
-      rangeTime = micros();
-      xSemaphoreGive(guard);
+  bool timeout = false;
+  portENTER_CRITICAL(&echoMux);
+  if (echoPending && uint32_t(now - trigger) > 15000) {
+    echoPending = false;
+    echoHigh = false;
+    timeout = true;
+  }
+  portEXIT_CRITICAL(&echoMux);
+  if (width || timeout) {
+    xSemaphoreTake(guard, portMAX_DELAY);
+    bool valid =
+        ready && sensorOK && fresh(micros(), sensorTime, 50000) &&
+        height.update(timeout ? NAN : width * .0343f / 2, attitude[0], attitude[1], micros());
+    if (!valid) {
+      height.latestValid = false;
+      if (!width)
+        height.rejected++;
     }
+    distanceCm = height.slant;
+    heightCm = height.height;
+    rangeTime = height.time;
+    xSemaphoreGive(guard);
   }
   packet();
   if (now - tel >= 100000) {

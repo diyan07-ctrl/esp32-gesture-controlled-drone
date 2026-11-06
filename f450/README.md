@@ -6,10 +6,14 @@ This directory is the current laptop-control implementation. Build it separately
 
 - `F450_ESP32_FlightController/F450_ESP32_FlightController.ino`: complete Arduino sketch.
 - `F450_ESP32_FlightController/Control.h`: independently testable PID, quaternion and mixer mathematics.
+- `FlightSupport.h`: startup reference, filtered height estimation, altitude controller, freshness and sequence helpers.
+- `Protocol.h`: shared, software-tested JSON pilot/gain validation used by the firmware.
 - `f450_ground_station.py`: Tkinter laptop GUI, Python standard library only.
 - `test_control.cpp`: native mathematical regression tests.
 
 Use ESP32 Dev Module / DevKit V1, Arduino ESP32 **2.0.17**, 4 MB flash, 115200 serial. Core 3.x has different LEDC/watchdog APIs and is not supported by this sketch. Install Adafruit BNO055 1.6.4, Adafruit Unified Sensor, Adafruit BusIO and ArduinoJson 6.21.5 through Library Manager. Open the sketch inside its matching folder. Alternatively, the pinned PlatformIO environment selects the correct core:
+
+API verification sources: [Espressif core 2.0.17 LEDC declarations](https://github.com/espressif/arduino-esp32/blob/2.0.17/cores/esp32/esp32-hal-ledc.h) and [Bosch BNO055 datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bno055-ds000.pdf). Physical mounting, individual ESC specifications and actual PWM are still bench checks.
 
 ```powershell
 python -m pip install platformio==6.1.18
@@ -48,7 +52,7 @@ Primary source: Pallab Das, [Flight_Controler_Code.ino](https://github.com/palla
 | Roll / pitch angle Kp, Ki, Kd | 1.5, 0, 0.6 each | exactly the same |
 | Roll / pitch rate Kp, Ki, Kd | 0.7, 0, 0.01 each | exactly the same |
 | Yaw rate Kp, Ki, Kd | 2, 12, 0 | exactly the same |
-| Altitude PID | absent | 0, 0, 0; disabled until explicit nonzero Kp and ALT request |
+| Altitude PID | absent | 0, 0, 0; user configures, acknowledges review while disarmed, then requests ALT |
 | PID integral / output clamp | ±400 / ±400 | exactly the same for every PID |
 | PID integration | trapezoidal, dt=0.004 | same equation, measured dt, nominal 0.004 |
 | Derivative | error difference / 0.004, no filter | same equation with measured dt, no added filter |
@@ -66,7 +70,7 @@ Primary source: Pallab Das, [Flight_Controler_Code.ino](https://github.com/palla
 | Kalman measurement update | K=P/(P+3²); x←x+K(z−x); P←(1−K)P | internal BNO fusion; no invented equivalent noise parameters |
 | Sensor sampling | MPU read each nominal 4 ms | checked BNO reads every 10 ms; PID every 4 ms holds latest feedback |
 | Throttle ceiling | 1800 | 1800 before mixer |
-| Mixer scale | 1.024 | 1.024 retained in pulse calculation |
+| Mixer scale | 1.024 converts µs to 250 Hz/12-bit counts | removed from microsecond path; PWM hardware layer converts once |
 | Mixer output cap | if >2000 then 1989 | retained exactly, including its discontinuity |
 | Running idle / cutoff | 1180 / 1000 | 1180 / 1000 µs |
 | Low throttle cutoff | PPM throttle <1050 resets motors and PID | explicit DISARM/STOP resets PID, writes 1000 µs |
@@ -78,7 +82,7 @@ Primary source: Pallab Das, [Flight_Controler_Code.ino](https://github.com/palla
 
 PID equation: `I=clamp(Iprev+Ki*(e+eprev)*dt/2,−400,400)`; `u=clamp(Kp*e+I+Kd*(e−eprev)/dt,−400,400)`. Roll/pitch angle outputs are desired body rates; rate outputs feed the mixer. Yaw is **rate control**, with zero command requesting zero yaw rate. The reference has no yaw heading controller; relative heading is displayed and wraps at ±180°. Quaternion calculations are continuous across that crossing (quaternion sign equivalence is respected). Euler angles have their usual pitch singularity; armed operation beyond 65° roll/pitch faults.
 
-The reference scalar Kalman estimator fuses raw acceleration with gyro. Applying it unchanged on top of an already fused BNO attitude would double-fuse correlated measurements with unrelated noise constants. It is therefore replaced at the sensor-estimation boundary. The cascaded angle/rate control equations and numerical gain defaults remain intact. BNO fusion latency and 50 Hz actuator update are material changes to dynamics; no matching closed-loop stability is claimed. The reference's 1.024 scale approximates converting microseconds into 12-bit counts at 250 Hz. Here the same numerical mixer scale is retained explicitly before the proper pulse-to-duty conversion, so it produces a 2.4% pulse increase before clipping rather than functioning as a hardware unit conversion. Validate the resulting pulses and collective base on the bench.
+The reference scalar Kalman estimator fuses raw acceleration with gyro. Applying it unchanged on top of an already fused BNO attitude would double-fuse correlated measurements with unrelated noise constants. It is replaced at the sensor-estimation boundary. The cascaded angle/rate control equations and numerical gain defaults remain intact. BNO fusion latency and 50 Hz actuator updates change the dynamics; matching closed-loop stability is not claimed. The reference's 1.024 is a hardware conversion (4096 counts / 4000 µs). Applying it before the new 50 Hz conversion was a bug, corrected in stage 2. All mixed motor values now remain in microseconds. Only `pulseToDuty()` converts to counts: `round(us * 65536 / 20000)`. These are discrete PWM counts, so exact requested widths have unavoidable rounding error up to 0.153 µs; see the measured-by-calculation table in VALIDATION.md. Clock accuracy and physical pulse shape still require scope verification.
 
 ## Mixer signs
 
@@ -86,10 +90,10 @@ Reference outputs are `1.024*(T−R−P−Y, T−R+P+Y, T+R+P−Y, T+R−P+Y)` i
 
 | Motor | Equation | +roll | +pitch | +yaw |
 |---|---|---|---|---|
-| M1 front-right CW | 1.024(T−R+P−Y) | decrease | increase | decrease |
-| M2 front-left CCW | 1.024(T+R+P+Y) | increase | increase | increase |
-| M3 rear-left CW | 1.024(T+R−P−Y) | increase | decrease | decrease |
-| M4 rear-right CCW | 1.024(T−R−P+Y) | decrease | decrease | increase |
+| M1 front-right CW | T−R+P−Y | decrease | increase | decrease |
+| M2 front-left CCW | T+R+P+Y | increase | increase | increase |
+| M3 rear-left CW | T+R−P−Y | increase | decrease | decrease |
+| M4 rear-right CCW | T−R−P+Y | decrease | decrease | increase |
 
 Negative corrections reverse these effects. Left lift produces right-down roll, front lift produces nose-up pitch; CCW rotor acceleration produces clockwise body reaction. Mathematical checks do not verify actual motor direction, propeller orientation or sensor mounting.
 
@@ -99,13 +103,21 @@ Power on stationary on a **level surface**, with propellers removed for bench wo
 
 Initialization uses Adafruit BNO055. Subsequent register reads check transaction lengths, fusion status/error and quaternion norm (0.95–1.05). The default unit settings use 1/16 deg/s gyro units. Capture requires 200 consecutive 10 ms samples: acceleration magnitude within 0.5 m/s² of gravity, each gyro below 3 deg/s, and orientation within 1° of the start of the window. Motion or invalid reads reset that window. The last valid normalized quaternion becomes q0 and the mean gyro becomes bias. Feedback is `inverse(q0)*q`, converted to roll/pitch/yaw; body rates subtract bias. Once captured, reference is never recaptured until reboot, even after sensor failure.
 
+Each new quaternion is aligned to the previous quaternion's hemisphere (q and −q encode the same orientation). A relative change exceeding 30° in a 10 ms sensor sample is rejected after reference capture as implausible. This is a sensor fault guard, not a reference controller gain. Recovery after a large discontinuity may require reboot while disarmed; reference is never silently replaced.
+
 This removes initial attitude offset and estimates stationary gyro bias. It cannot remove scale errors, temperature drift, vibration, sensor misalignment, or acceleration-induced fusion errors. Constant readings cannot conclusively prove sensor freshness; acknowledged I2C/status checks catch disconnects and invalid responses but not every internal frozen-data fault. Initialization failure keeps ARM unavailable until reboot; the library's initialization may wait for the device while the independently running controller continues disarmed.
 
-ARM requires reference ready, IMU age <50 ms, valid command age <300 ms, all commands neutral and roll/pitch within 5°. An ARM starts running at the configured base throttle. Sensor failure, sensor age >50 ms, command loss >300 ms, no AP clients, excessive tilt, altitude range loss while holding, or control interval >8 ms disarms. Faults latch disarmed until a fresh explicit ARM; STOP always works. There is no automatic landing on link failure. A 1 s task watchdog reboots if control stops progressing; boot always writes cutoff pulses before sensors initialize.
+ARM requires reference ready, IMU age <50 ms, valid command age <300 ms, AP client present, valid PWM initialization, all pilot axes neutral, manual collective at 1180 µs, and roll/pitch within 5°. It starts at running idle, 1180 µs; stopped output is 1000 µs. Duplicate ARM while armed is rejected without resetting controllers. Telemetry reports `arming_block_reason`. Sensor failure, sensor age >50 ms, command loss >300 ms, no AP clients, excessive tilt, invalid/stale range while holding, invalid motor calculations, or a zero/>8 ms control interval disarms. STOP/DISARM writes cutoff and clears PID history. There is no automatic landing on link failure. A 1 s task watchdog reboots if control stops progressing; boot writes cutoff before sensors initialize.
 
-Ultrasonic triggering is every 60 ms; echo width is captured by interrupt without pulseIn. Accepted slant distance is 2–200 cm, using speed of sound 0.0343 cm/µs. `height_cm = distance_cm + 4.03` exactly as requested, without tilt compensation. Tilt, ground slope, soft surfaces, temperature and rotor wash affect it. ALT requires a recent valid reading and nonzero altitude Kp; invalid readings are discarded, and no valid measurement for 250 ms during hold disarms. The last value is displayed alongside range validity.
+Ultrasonic triggering is every 60 ms; interrupt edges are accepted only within a pending trigger, with a 15 ms timeout and no pulseIn. Slant range must be finite and 2–200 cm. With the sensor pointing along body down and a level startup reference, `height = D*cos(roll_deg*π/180)*cos(pitch_deg*π/180)+4.03 cm`; at zero tilt this is exactly D+4.03. Measurements beyond 30° roll/pitch or with invalid/stale IMU data are rejected. A three-sample median rejects isolated outliers, followed by a first-order low-pass filter with τ=0.15 s and alpha=sample_dt/(τ+sample_dt). Three valid samples and age ≤250 ms are required. Invalid echoes mark health false immediately and leave the last height unchanged. During hold, unhealthy range causes failsafe cutoff without further integration. Range rejection count, age and health are explicit telemetry. Beam spread, rotor airflow, soft/reflective surfaces, slopes, obstructions and temperature can defeat this short-range estimate; filtering adds delay and cannot establish ground identity.
 
-Altitude PID is an added controller in µs/cm, µs/(cm·s), and µs·s/cm. Its correction is added to base throttle. R/F change target at ±30 cm/s, bounded 6.03–204.03 cm. Zero gains are deliberate unconfigured defaults, not reference values. Set and validate altitude gains and measured hover base throttle on a suitable test fixture before attempting altitude hold. No arbitrary hover throttle or altitude PID is presented as flight-tested.
+Altitude PID is a separate addition in µs/cm, µs/(cm·s), and µs·s/cm; no altitude gain is reference-derived. Configure gains in the GUI, bench-review them, then press the explicit confirmation button while disarmed (`ALT_VALIDATE`). This records an operator acknowledgement, not automatic proof of stability. The flag clears on PID updates, reset and reboot, and is not persisted with gains. Zero defaults remain deliberately unconfigured. No unproven nonzero gains are supplied.
+
+ALT captures current collective as feedforward and starts its internal target at measured height, then ramps toward requested height at 30 cm/s. R/F adjust requested target at ±30 cm/s in hold only, bounded 6.03–204.03 cm. The altitude PID runs only on a new accepted measurement, using measurement delta time; its integral and correction clamp at ±400, with integration rollback when collective saturation would be driven further. Collective clamps to 1180–1800 µs and slews at 100 µs/s in both modes. Invalid/stale measurements never accumulate integral. The target ramp and collective slew prevent an instantaneous collective step on mode changes; attitude corrections can still change individual motor commands.
+
+Manual mode uses continuous `CMD.throttle` in microseconds, controlled by the GUI slider or Up/Down keys (2 µs per 50 Hz command). ALTITUDE_HOLD ignores this field so manual and altitude controllers cannot fight. MANUAL captures the present collective and clears altitude history; the GUI adopts the reported collective for its slider. SPACE neutralizes roll/pitch/yaw/climb and holds collective; X stops everything. Old clients omitting throttle retain the last manual demand. Legacy BASE remains disarmed-only; a value above 1180 must return to idle before ARM. Choosing an ALT target never changes manual throttle.
+
+State transitions are explicit: BOOT → SENSOR_INITIALIZATION → STARTUP_REFERENCE → DISARMED; ARM passes through ARMING_CHECKS to ARMED or returns a specific rejection. Link/range failure enters FAILSAFE; IMU, motor and timing errors enter FAULT. Both clear armed state and write cutoff. STOP/DISARM enters DISARMED; recovery still requires healthy sensors, idle throttle and a new ARM. BOOT and ARMING_CHECKS can be shorter than a telemetry interval. Battery telemetry reports NOT_INSTALLED: no battery sampling or voltage failsafe is claimed. Invalid PID updates are rejected atomically with INVALID_PID and do not disturb the active gains or renew command freshness.
 
 ## Ground station
 
@@ -127,7 +139,7 @@ Each command has `type` string and `seq` unsigned 32-bit integer. Sequences must
 
 | Type | Additional fields | Meaning |
 |---|---|---|
-| CMD | roll,pitch,yaw,climb: finite numbers −1..1 | pilot input, transmitted continuously |
+| CMD | roll,pitch,yaw,climb: finite numbers −1..1; optional throttle: 1180..1800 µs | pilot input, 50 Hz; throttle ignored during altitude hold |
 | ARM / DISARM / STOP | none | explicit arm / cutoff |
 | GET | none | ACK includes current gains and base |
 | PID | gains: six arrays of three finite numbers, each 0..100 | order roll angle, pitch angle, roll rate, pitch rate, yaw rate, altitude; Kp,Ki,Kd |
@@ -135,12 +147,13 @@ Each command has `type` string and `seq` unsigned 32-bit integer. Sequences must
 | SAVE | none | persist current gains only, disarmed |
 | BASE | value: 1180..1800 | manual collective base µs, disarmed |
 | ALT | value: 6.03..204.03 | enable hold and set target frame height cm |
+| ALT_VALIDATE | none | disarmed operator acknowledgement of configured altitude gains; requires healthy range |
 | MANUAL | none | disable hold and clear altitude PID history |
 | RELEASE | none | release owner and sequence tracking, disarmed |
 
 Example: `{"type":"CMD","seq":123,"roll":0,"pitch":0,"yaw":0,"climb":0}`.
 
-TEL packets at 10 Hz contain relative and absolute quaternion-derived angles (degrees), bias-corrected gyro and bias (deg/s), distance/height/target (cm), all gains, base, outputs (roll,pitch,yaw,altitude), four pulse commands, AP client count, IMU/range validity and age, command age, reference/arming/altitude status, fault, watchdog state, overrun count, and control age. Absolute yaw is fusion yaw and is not geographic heading. All arrays follow the ordering documented above; motors are M1..M4. The GUI accepts packets only from 192.168.4.1. It displays telemetry loss after 500 ms.
+TEL packets at 10 Hz retain the existing angles, gyro/bias, gains, distance, height, target, outputs and motors. Added fields are mode, state, collective_us, manual_throttle_us, alt_error, alt_configured, alt_validated, range_age_ms, range_rejected, reference_samples, pwm_ok, arming_available, arming_block_reason and battery_status. `target` is the ramped controller target; range distance is latest accepted raw slant range, and height is filtered vertical height. Outputs are roll/pitch/yaw/altitude corrections in µs, motors are M1..M4 µs. Absolute yaw is not geographic heading. The GUI accepts only 192.168.4.1 and reports telemetry loss after 500 ms.
 
 ## Validation and troubleshooting
 

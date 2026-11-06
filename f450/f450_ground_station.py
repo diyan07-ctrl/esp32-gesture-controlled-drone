@@ -23,6 +23,7 @@ class Station:
         self.last_rx = 0
         self.next_send = 0
         self.telemetry = {}
+        self.throttle = tk.DoubleVar(value=1180)
         self.status = tk.StringVar(value='Connect Wi-Fi to F450_DRONE')
         self.ack = tk.StringVar(value='Waiting for configuration')
         self.live = tk.StringVar(value='No telemetry')
@@ -31,7 +32,7 @@ class Station:
         ttk.Label(root, text='W/S pitch • A/D roll • Q/E yaw • R/F climb • SPACE neutral • X stop').grid(row=2, column=0, columnspan=7)
         bar = ttk.Frame(root)
         bar.grid(row=3, column=0, columnspan=7)
-        for text, kind in [('ARM', 'ARM'), ('DISARM / STOP', 'STOP'), ('Query gains', 'GET'), ('Reset reference defaults', 'RESET'), ('Save gains to NVS', 'SAVE'), ('Manual altitude', 'MANUAL')]:
+        for text, kind in [('ARM', 'ARM'), ('DISARM / STOP', 'STOP'), ('Query gains', 'GET'), ('Reset reference defaults', 'RESET'), ('Save gains to NVS', 'SAVE'), ('Manual throttle', 'MANUAL')]:
             ttk.Button(bar, text=text, command=lambda k=kind: self.send(k)).pack(side='left')
         self.entries = []
         self.current = []
@@ -62,6 +63,10 @@ class Station:
         ttk.Entry(root, textvariable=self.target).grid(row=13, column=1)
         ttk.Button(root, text='Enable / set altitude hold', command=lambda: self.numeric('ALT', self.target, 6.03, 204.03)).grid(row=13, column=2)
         ttk.Label(root, textvariable=self.ack).grid(row=14, column=0, columnspan=5)
+        ttk.Label(root, text='Manual collective us: Up/Down; ignored in ALTITUDE_HOLD').grid(row=15,column=0,columnspan=2)
+        ttk.Scale(root,from_=1180,to=1800,variable=self.throttle,length=400).grid(row=15,column=2,columnspan=3)
+        ttk.Label(root,textvariable=self.throttle).grid(row=16,column=0)
+        ttk.Button(root,text='Confirm altitude gains bench-reviewed (disarmed)',command=lambda:self.send('ALT_VALIDATE')).grid(row=16,column=1,columnspan=3)
         root.bind('<KeyPress>', self.press)
         root.bind('<KeyRelease>', lambda e: self.keys.discard(e.keysym.lower()))
         root.bind('<FocusOut>', lambda e: self.keys.clear())
@@ -71,6 +76,8 @@ class Station:
         self.tick()
 
     def send(self, kind, **values):
+        if kind == 'MANUAL' and hasattr(self, 'throttle'):
+            self.throttle.set(self.telemetry.get('collective_us',1180))
         self.seq = (self.seq + 1) & 0xffffffff
         data = dict(type=kind, seq=self.seq, **values)
         try:
@@ -110,6 +117,7 @@ class Station:
         key = event.keysym.lower()
         if key == 'x':
             self.keys.clear()
+            self.throttle.set(1180)
             self.send('STOP')
         elif isinstance(self.root.focus_get(), (ttk.Entry, tk.Entry)):
             return
@@ -127,7 +135,9 @@ class Station:
             self.ack.set(f"ACK {data.get('seq')}: {data.get('reason')}")
         if data.get('type') == 'TEL':
             self.telemetry = data
-            self.live.set('\n'.join(f'{k}: {data.get(k)}' for k in ['relative', 'absolute', 'gyro', 'bias', 'height', 'target', 'alt_hold', 'outputs', 'motors', 'armed', 'reference_ready', 'imu_ok', 'range_ok', 'fault', 'watchdog', 'overruns']))
+            self.live.set('\n'.join(f'{k}: {data.get(k)}' for k in ['state','mode','relative','gyro','height','target','requested_target','alt_error','outputs','collective_us','manual_throttle_us','motors','armed','arming_block_reason','reference_ready','reference_samples','imu_ok','range_ok','range_age_ms','range_rejected','alt_configured','alt_validated','battery_status','fault','watchdog','overruns']))
+            if not data.get('armed'):
+                self.throttle.set(1180)
         gains = data.get('gains')
         if isinstance(gains, list) and len(gains) == 6:
             for i, row in enumerate(gains):
@@ -144,7 +154,9 @@ class Station:
         if now >= self.next_send:
             self.next_send = now + .02
             k = self.keys
-            self.send('CMD', roll=float(('d' in k)-('a' in k)), pitch=float(('s' in k)-('w' in k)), yaw=float(('e' in k)-('q' in k)), climb=float(('r' in k)-('f' in k)))
+            if self.telemetry.get('mode') != 'ALTITUDE_HOLD':
+                self.throttle.set(max(1180,min(1800,self.throttle.get()+2*(('up' in k)-('down' in k)))))
+            self.send('CMD', roll=float(('d' in k)-('a' in k)), pitch=float(('s' in k)-('w' in k)), yaw=float(('e' in k)-('q' in k)), climb=float(('r' in k)-('f' in k)),throttle=float(self.throttle.get()))
         for _ in range(20):
             try:
                 raw, source = self.sock.recvfrom(4096)
