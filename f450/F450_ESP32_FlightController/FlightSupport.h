@@ -68,14 +68,21 @@ struct HeightEstimator {
   unsigned count = 0, index = 0, rejected = 0;
   uint32_t time = 0;
   bool latestValid = false;
+  void invalidate() {
+    latestValid = false;
+    count = 0;
+    index = 0;
+    for (float &v : samples)
+      v = 0;
+    rejected++;
+  }
   bool healthy(uint32_t now) const {
     return latestValid && count >= 3 && fresh(now, time, 250000);
   }
   bool update(float distance, float rollDeg, float pitchDeg, uint32_t now) {
     if (!isfinite(distance) || distance < 2 || distance > 200 || !isfinite(rollDeg) ||
         !isfinite(pitchDeg) || fabsf(rollDeg) > 30 || fabsf(pitchDeg) > 30) {
-      latestValid = false;
-      rejected++;
+      invalidate();
       return false;
     }
     float vertical =

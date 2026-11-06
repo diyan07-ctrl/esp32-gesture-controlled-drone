@@ -11,6 +11,7 @@
 #error "This firmware requires Arduino-ESP32 2.x; verified with 2.0.17"
 #endif
 #include "Protocol.h"
+#include "Safety.h"
 // Supported toolchain: Arduino ESP32 2.0.17. Sensor axes: X forward, Y right, Z down.
 const int pins[4] = {25, 26, 32, 33};
 Adafruit_BNO055 bno(55, 0x29);
@@ -22,17 +23,9 @@ PID pid[6];
 StartupReference startup;
 HeightEstimator height;
 AltitudeController altitude;
-enum class FlightState {
-  BOOT,
-  SENSOR_INITIALIZATION,
-  STARTUP_REFERENCE,
-  DISARMED,
-  ARMING_CHECKS,
-  ARMED,
-  FAILSAFE,
-  FAULT
-};
-FlightState state = FlightState::BOOT;
+SafetyLatch safety;
+FlightState &state = safety.state;
+CommandOrder order;
 const char *stateName() {
   switch (state) {
   case FlightState::BOOT:
@@ -55,21 +48,22 @@ const char *stateName() {
 }
 float manualThrottleUs = 1180;
 bool pwmOK = true;
+bool watchdogOK = false;
 volatile bool echoPending = false, echoHigh = false;
 float attitude[3] = {}, absoluteAngles[3] = {}, rates[3] = {}, bias[3] = {}, pilot[4] = {};
 float outputs[4] = {}, motors[4] = {1000, 1000, 1000, 1000};
 float distanceCm = 0, heightCm = 0, targetCm = 0, baseThrottle = 1180;
-bool ready = false, sensorOK = false, armed = false, altHold = false, ownerSet = false,
-     seqSet = false;
-uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, lastSequence = 0, controlTime = 0,
-         overruns = 0;
+bool ready = false, sensorOK = false, armed = false, altHold = false, ownerSet = false;
+uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, controlTime = 0, overruns = 0;
 const char *fault = "STARTUP";
 IPAddress owner;
-const char *armBlockReason() {
+const char *inputBlockReason() {
   if (armed)
     return "ALREADY_ARMED";
   if (!pwmOK)
     return "PWM_INITIALIZATION";
+  if (!watchdogOK)
+    return "WATCHDOG_INITIALIZATION";
   if (!ready)
     return "WAIT_STARTUP_REFERENCE";
   if (!sensorOK || !fresh(micros(), sensorTime, 50000))
@@ -84,6 +78,14 @@ const char *armBlockReason() {
   if (fabsf(attitude[0]) >= 5 || fabsf(attitude[1]) >= 5)
     return "ATTITUDE_NOT_LEVEL";
   return "NONE";
+}
+const char *armBlockReason() {
+  const char *latch = safety.block();
+  if (strcmp(latch, "NONE"))
+    return latch;
+  if (order.exhausted)
+    return "ARM_TOKEN_EXHAUSTED_REBOOT";
+  return inputBlockReason();
 }
 volatile uint32_t echoRise = 0, echoWidth = 0;
 portMUX_TYPE echoMux = portMUX_INITIALIZER_UNLOCKED;
@@ -108,7 +110,8 @@ void pwm() {
     valid = pulseToDuty(motors[i], duties[i]) && valid;
   if (!valid) {
     armed = false;
-    state = FlightState::FAULT;
+    safety.fault();
+    order.invalidate();
     fault = "INVALID_MOTOR";
     altitude.manual();
     altHold = false;
@@ -121,15 +124,20 @@ void pwm() {
     ledcWrite(i, duties[i]);
 }
 void stop(const char *why) {
-  state = (!strcmp(why, "PILOT_STOP"))                                   ? FlightState::DISARMED
-          : (!strcmp(why, "COMMAND_LOSS") || !strcmp(why, "RANGE_LOSS")) ? FlightState::FAILSAFE
-                                                                         : FlightState::FAULT;
+  if (!strcmp(why, "PILOT_STOP"))
+    safety.stop();
+  else if (!strcmp(why, "COMMAND_LOSS") || !strcmp(why, "RANGE_LOSS"))
+    safety.fail(!strcmp(why, "RANGE_LOSS"));
+  else
+    safety.fault();
+  order.invalidate();
   altitude.manual();
   altitude.collective = 1180;
   manualThrottleUs = 1180;
   armed = false;
   altHold = false;
-  fault = why;
+  if (strcmp(why, "PILOT_STOP") || (state != FlightState::FAULT && state != FlightState::FAILSAFE))
+    fault = why;
   for (auto &p : pid)
     p = PID{};
   for (float &o : outputs)
@@ -156,7 +164,11 @@ void sensorTask(void *) {
   // Adafruit initialization and checked register acquisition use its default unit configuration.
   bool initialized = bno.begin(OPERATION_MODE_IMUPLUS);
   xSemaphoreTake(guard, portMAX_DELAY);
-  state = initialized ? FlightState::STARTUP_REFERENCE : FlightState::FAULT;
+  if (!initialized) {
+    safety.fault();
+    order.invalidate();
+  } else if (state != FlightState::FAULT)
+    state = FlightState::STARTUP_REFERENCE;
   if (!initialized)
     fault = "IMU_INITIALIZATION";
   xSemaphoreGive(guard);
@@ -187,8 +199,10 @@ void sensorTask(void *) {
       sensorOK = valid;
       ready = startup.ready;
       if (!wasReady && ready) {
-        fault = "NONE";
-        state = FlightState::DISARMED;
+        if (state == FlightState::STARTUP_REFERENCE) {
+          fault = "NONE";
+          state = FlightState::DISARMED;
+        }
       }
       if (ready && valid) {
         (startup.reference.inverse() * q).angles(attitude);
@@ -210,7 +224,11 @@ void sensorTask(void *) {
 void controlTask(void *) {
   TickType_t tick = xTaskGetTickCount();
   uint32_t previous = micros();
-  esp_task_wdt_add(NULL);
+  xSemaphoreTake(guard, portMAX_DELAY);
+  watchdogOK = (esp_task_wdt_add(NULL) == ESP_OK) && watchdogOK;
+  if (!watchdogOK)
+    stop("WATCHDOG_INITIALIZATION");
+  xSemaphoreGive(guard);
   for (;;) {
     vTaskDelayUntil(&tick, pdMS_TO_TICKS(4));
     uint32_t now = micros();
@@ -249,7 +267,12 @@ void controlTask(void *) {
       pwm();
     }
     xSemaphoreGive(guard);
-    esp_task_wdt_reset();
+    if (esp_task_wdt_reset() != ESP_OK) {
+      xSemaphoreTake(guard, portMAX_DELAY);
+      watchdogOK = false;
+      stop("WATCHDOG_FEED_FAILED");
+      xSemaphoreGive(guard);
+    }
   }
 }
 void sendDoc(JsonDocument &d, IPAddress ip) {
@@ -283,11 +306,13 @@ void packet() {
     return;
   }
   n = udp.read(buffer, 1199);
+  if (n <= 0)
+    return;
   buffer[n] = 0;
   StaticJsonDocument<2048> d;
   StaticJsonDocument<2048> reply;
   reply["type"] = "ACK";
-  if (deserializeJson(d, buffer, n) || !d["seq"].is<uint32_t>() || !d["type"].is<const char *>())
+  if (!parseEnvelope(d, buffer, n))
     return;
   uint32_t seq = d["seq"];
   const char *type = d["type"];
@@ -297,21 +322,22 @@ void packet() {
   xSemaphoreTake(guard, portMAX_DELAY);
   // STOP is deliberately accepted even if its sequence is old or its sender differs.
   if (!strcmp(type, "STOP") || !strcmp(type, "DISARM")) {
+    // STOP always cuts off, even if stale/foreign. Invalidate token once in stop().
+    order.observeStop(seq, !ownerSet || ip == owner);
     stop("PILOT_STOP");
     ok = true;
   } else if (ownerSet && ip != owner) {
     reason = "OWNER_BUSY";
   } else if (!strcmp(type, "RELEASE") && !armed) {
     ownerSet = false;
-    seqSet = false;
+    order.release();
     ok = true;
-  } else if (seqSet && !newer(seq, lastSequence)) {
+  } else if (!order.accept(seq)) {
     reason = "OLD_SEQUENCE";
   } else {
     owner = ip;
     ownerSet = true;
-    seqSet = true;
-    lastSequence = seq;
+
     if (!strcmp(type, "CMD")) {
       float v[4];
       float collective = manualThrottleUs;
@@ -327,23 +353,30 @@ void packet() {
       parameters(reply);
       ok = true;
     } else if (!strcmp(type, "ARM")) {
-      if (armed) {
-        reason = "ALREADY_ARMED";
-      } else {
-        state = FlightState::ARMING_CHECKS;
-        reason = armBlockReason();
-        ok = !strcmp(reason, "NONE");
-        if (ok) {
+      reason = armBlockReason();
+      if (!strcmp(reason, "NONE")) {
+        if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
+          reason = "STALE_ARM_TOKEN";
+        else if (authorizeArm(safety, order, d["arm_token"].as<uint32_t>(), true)) {
           for (auto &p : pid)
             p = PID{};
           armed = true;
-          state = FlightState::ARMED;
           altitude.collective = 1180;
           fault = "NONE";
-        } else {
-          state = FlightState::DISARMED;
-          fault = reason;
+          ok = true;
         }
+      }
+    } else if (!strcmp(type, "CLEAR_FAULT")) {
+      if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
+        reason = "STALE_ARM_TOKEN";
+      else {
+        ok = safety.clear(!strcmp(inputBlockReason(), "NONE"), height.healthy(micros()));
+        if (ok) {
+          fault = "NONE";
+          order.invalidate();
+        } else
+          reason = state == FlightState::FAULT ? "FAULT_REBOOT_REQUIRED"
+                                               : "CLEAR_REQUIRES_HEALTHY_FAILSAFE";
       }
     } else if (!strcmp(type, "PID")) {
       Gain candidate[6];
@@ -418,10 +451,11 @@ void packet() {
       ok = !armed;
       if (ok) {
         ownerSet = false;
-        seqSet = false;
+        order.release();
       }
     }
   }
+  reply["arm_token"] = order.token;
   reply["ok"] = ok;
   reply["reason"] = ok ? "OK" : reason;
   xSemaphoreGive(guard);
@@ -462,6 +496,8 @@ void telemetry() {
   d["collective_us"] = altitude.collective;
   d["manual_throttle_us"] = manualThrottleUs;
   d["state"] = stateName();
+  d["arm_token"] = order.token;
+  d["range_recovery_samples"] = height.count;
   d["reference_samples"] = startup.count;
   d["battery_status"] = "NOT_INSTALLED";
   d["pwm_ok"] = pwmOK;
@@ -472,7 +508,7 @@ void telemetry() {
   d["stations"] = WiFi.softAPgetStationNum();
   d["fault"] = fault;
   d["overruns"] = overruns;
-  d["watchdog"] = "ACTIVE_1S";
+  d["watchdog"] = watchdogOK ? "REGISTERED_1S" : "FAILED";
   d["control_age_us"] = micros() - controlTime;
   IPAddress dest = owner;
   xSemaphoreGive(guard);
@@ -482,12 +518,18 @@ void telemetry() {
 void setup() {
   Serial.begin(115200);
   guard = xSemaphoreCreateMutex();
+  order.token = esp_random();
   memcpy(gains, defaults, sizeof(gains));
   for (int i = 0; i < 4; i++) {
     pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;
     ledcAttachPin(pins[i], i);
   }
   pwm();
+  if (!pwmOK) {
+    safety.fault();
+    fault = "PWM_INITIALIZATION";
+    order.invalidate();
+  }
   nv.begin("f450", true);
   Gain saved[6];
   if (nv.getBytesLength("gains") == sizeof(saved) &&
@@ -500,7 +542,8 @@ void setup() {
       memcpy(gains, saved, sizeof(gains));
   }
   nv.end();
-  state = FlightState::SENSOR_INITIALIZATION;
+  if (state != FlightState::FAULT)
+    state = FlightState::SENSOR_INITIALIZATION;
   Wire.begin(21, 22);
   Wire.setClock(400000);
   Wire.setTimeOut(5);
@@ -512,7 +555,7 @@ void setup() {
                     IPAddress(255, 255, 255, 0));
   WiFi.softAP("F450_DRONE", "F450Drone2026");
   udp.begin(4210);
-  esp_task_wdt_init(1, true);
+  watchdogOK = esp_task_wdt_init(1, true) == ESP_OK;
   xTaskCreatePinnedToCore(sensorTask, "sensors", 4096, NULL, 2, NULL, 0);
   xTaskCreatePinnedToCore(controlTask, "control", 4096, NULL, 4, NULL, 1);
 }
@@ -545,14 +588,10 @@ void loop() {
   portEXIT_CRITICAL(&echoMux);
   if (width || timeout) {
     xSemaphoreTake(guard, portMAX_DELAY);
-    bool valid =
-        ready && sensorOK && fresh(micros(), sensorTime, 50000) &&
-        height.update(timeout ? NAN : width * .0343f / 2, attitude[0], attitude[1], micros());
-    if (!valid) {
-      height.latestValid = false;
-      if (!width)
-        height.rejected++;
-    }
+    if (!ready || !sensorOK || !fresh(micros(), sensorTime, 50000))
+      height.invalidate();
+    else
+      height.update(timeout ? NAN : width * .0343f / 2, attitude[0], attitude[1], micros());
     distanceCm = height.slant;
     heightCm = height.height;
     rangeTime = height.time;

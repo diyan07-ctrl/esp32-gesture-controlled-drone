@@ -51,6 +51,36 @@ class GroundStationTests(unittest.TestCase):
         station.send('MANUAL')
         station.throttle.set.assert_called_once_with(1432.5)
 
+    def test_arm_requires_token_and_consumes_local_copy(self):
+        station = Station.__new__(Station)
+        station.seq = 1
+        station.sock = Mock()
+        station.pending = {}
+        station.ack = Mock()
+        station.telemetry = {}
+        station.send('ARM')
+        station.sock.sendto.assert_not_called()
+        station.telemetry['arm_token'] = 72
+        station.send('ARM')
+        raw, _ = station.sock.sendto.call_args.args
+        self.assertEqual(json.loads(raw)['arm_token'], 72)
+        self.assertNotIn('arm_token', station.telemetry)
+
+    def test_stop_forgets_token_and_clear_uses_latest_token(self):
+        station = Station.__new__(Station)
+        station.seq = 1
+        station.sock = Mock()
+        station.pending = {}
+        station.ack = Mock()
+        station.telemetry = {'arm_token': 9}
+        station.send('STOP')
+        self.assertNotIn('arm_token', station.telemetry)
+        station.receive(dict(type='ACK',seq=2,reason='OK',arm_token=10))
+        station.send('CLEAR_FAULT')
+        raw, _ = station.sock.sendto.call_args.args
+        self.assertEqual(json.loads(raw)['arm_token'],10)
+        self.assertNotIn('arm_token', station.telemetry)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -32,7 +32,7 @@ class Station:
         ttk.Label(root, text='W/S pitch • A/D roll • Q/E yaw • R/F climb • SPACE neutral • X stop').grid(row=2, column=0, columnspan=7)
         bar = ttk.Frame(root)
         bar.grid(row=3, column=0, columnspan=7)
-        for text, kind in [('ARM', 'ARM'), ('DISARM / STOP', 'STOP'), ('Query gains', 'GET'), ('Reset reference defaults', 'RESET'), ('Save gains to NVS', 'SAVE'), ('Manual throttle', 'MANUAL')]:
+        for text, kind in [('ARM', 'ARM'), ('DISARM / STOP', 'STOP'), ('Clear recoverable failsafe', 'CLEAR_FAULT'), ('Query gains', 'GET'), ('Reset reference defaults', 'RESET'), ('Save gains to NVS', 'SAVE'), ('Manual throttle', 'MANUAL')]:
             ttk.Button(bar, text=text, command=lambda k=kind: self.send(k)).pack(side='left')
         self.entries = []
         self.current = []
@@ -76,6 +76,14 @@ class Station:
         self.tick()
 
     def send(self, kind, **values):
+        if kind in ('ARM', 'CLEAR_FAULT'):
+            token = self.telemetry.get('arm_token')
+            if type(token) is not int or not 0 <= token <= 0xffffffff:
+                self.ack.set('Query current status before ARM or CLEAR_FAULT')
+                return
+            values['arm_token'] = token
+        if kind in ('STOP', 'DISARM', 'RELEASE', 'ARM', 'CLEAR_FAULT'):
+            self.telemetry.pop('arm_token', None)
         if kind == 'MANUAL' and hasattr(self, 'throttle'):
             self.throttle.set(self.telemetry.get('collective_us',1180))
         self.seq = (self.seq + 1) & 0xffffffff
@@ -130,6 +138,8 @@ class Station:
         if not isinstance(data, dict):
             return
         self.last_rx = time.monotonic()
+        if type(data.get('arm_token')) is int:
+            self.telemetry['arm_token'] = data['arm_token']
         if data.get('type') == 'ACK':
             self.pending.pop(data.get('seq'), None)
             self.ack.set(f"ACK {data.get('seq')}: {data.get('reason')}")
