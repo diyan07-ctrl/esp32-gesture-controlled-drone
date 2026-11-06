@@ -1,4 +1,18 @@
-# Stage 2 engineering change report
+# Stage 4 protocol correction report
+
+Stage 4 starts at 75402433eba659c6ef4d9ee0924cb55a4ac5e9ad and changes only protocol/session handling, client compatibility, tests and documentation. Hardware pins, mixer, PWM conversion/frequency, PID defaults, 4 ms loop, sensor/reference/altitude math and NVS persistence are preserved.
+
+`Dispatcher.h` is now the production JSON command router called under the existing firmware mutex. It owns acquisition, authorization, sequence checks, STOP/DISARM exceptions and RELEASE. The .ino retains its existing control-action bodies behind an adapter. Native Stage 4 tests feed serialized JSON through this same router and inspect ACKs and state snapshots; there is no separate mock RELEASE policy.
+
+Previously RELEASE bypassed sequence validation and cleared the window before replay checks. It now checks active owner IP, matching session generation, disarmed status and strictly forward sequence before any mutation. Rejection is side-effect free. Success retires the generation, clears owner/order/fresh-command state and rotates the arming token without changing safety state or outputs. Old traffic cannot reclaim the empty slot or affect a later session.
+
+There was no HELLO procedure in Stage 3: implicit acquisition allowed stale packets to claim ownership. Stage 4 therefore adds GET discovery → HELLO acquisition/resume and a uint32 `session` field on owner commands. An empty slot admits a fresh initial sequence only through a matching-generation HELLO. Current-owner resume advances its existing window. Session IDs never reuse within a boot; exhaustion requires reboot. This necessary wire-protocol extension is implemented in the laptop at startup and through Connect / resume. Stage 3 clients must be upgraded.
+
+The GUI sends pilot packets only after a correlated successful HELLO ACK, synchronizes sequence on same-IP resume, handles valid/rejected RELEASE without assuming success, ignores uncorrelated ownership ACKs, and preserves keyboard, throttle, altitude and tuning controls. Reconnecting an armed session is blocked. Only a fresh valid owner/session CMD renews the communication deadline; neither queries nor handshake traffic substitutes for pilot freshness. Fault latches and explicit fresh ARM remain required.
+
+See VALIDATION.md for actual Stage 4 runs, image sizes and verification categories, and docs/testing-and-validation.md for the complete per-command authorization audit. Native adapters stand in for electrical I/O and control preconditions; actual UDP sockets, NVS hardware, timing and motors still need bench verification. No flight claim is made.
+
+## Historical Stage 2 report
 
 Historical Stage 2 record. Stage 3 sequence barriers, latched recovery policy and ultrasonic recovery supersede the earlier behavior; see `docs/testing-and-validation.md` and `VALIDATION.md` for the current revision.
 
