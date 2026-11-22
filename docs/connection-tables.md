@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Wiring and confirmed hardware
 
 **Current drone bench revision:** the drone ESP32 is connected to a BNO055 on

@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Power budget and electrical calculations
 
 Verified by arithmetic from user inventory: nominal pack 11.1 V; capacity 2200 mAh =2.2 Ah; nominal energy E=11.1×2.2=**24.42 Wh**. Standard 3S LiPo full charge is 3×4.2=**12.6 V**; verify chemistry and charger. Actual usable energy depends on load, age and temperature.

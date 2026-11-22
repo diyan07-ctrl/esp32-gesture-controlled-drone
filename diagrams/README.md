@@ -1,3 +1,5 @@
+> ARCHIVAL implementation/reference record. Superseded for installed hardware by [project closure](../PROJECT_CLOSURE.md). BNO055/HC-SR04/glove instructions do not describe the current aircraft. F450 propulsion outputs are now inhibited; prior pulse/gain/mixer results describe their stated source revision.
+
 # Engineering diagrams
 
 Six editable Mermaid sources are maintained here. In these flowcharts, thick arrows (`==>`) are power, thin arrows are data/control, and undirected lines are reference/mechanical relationships. Labels distinguish high-current propulsion from regulated rails. BEC output is explicitly unused. All GPIOs are provisional pending the actual DevKit pinout and ESC identification.

@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # System architecture
 
 The retained PlatformIO project now reads MPU6050, two flex inputs (34/35) and a

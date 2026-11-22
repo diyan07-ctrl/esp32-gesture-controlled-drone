@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Open-source flight-control evaluation
 
 Reviewed 2026-11-05 against the upstream source paths linked below. Links to main

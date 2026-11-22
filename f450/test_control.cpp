@@ -13,7 +13,7 @@ int main() {
   mix(1500, 0, 10, 0, m);
   assert(m[0] > m[3] && m[1] > m[2]);
   mix(1500, 0, 0, 10, m);
-  assert(m[1] > m[0] && m[3] > m[2]);
+  assert(m[0] > m[1] && m[2] > m[3]);
   Quaternion q = {.70710678f, 0, 0, .70710678f};
   float a[3];
   (q.inverse() * q).angles(a);

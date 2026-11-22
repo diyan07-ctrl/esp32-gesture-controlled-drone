@@ -157,10 +157,13 @@ void controlTask(void *) {
       safety.step(c, now);
       esc.write(Mix{}, false);
     }
-    esp_task_wdt_reset();
+    if (esp_task_wdt_reset() != ESP_OK)
+      watchdogFault |= Setup;
   }
 }
 void setup() {
+  for (int pin : cfg::motors)
+    pinMode(pin, INPUT);
   Serial.setTxBufferSize(1024);
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);

@@ -1,6 +1,10 @@
+> ARCHIVAL implementation. Superseded for installed MPU6050 hardware by [project closure](../PROJECT_CLOSURE.md). Closure corrects the owner-reported yaw signs and inhibits all propulsion outputs. The prior measured/calculated results describe their stated original revision.
+
 # F450 laptop-controlled ESP32 controller
 
-This directory is the current laptop-control implementation. Build it separately from the legacy gesture firmware in the parent repository. It has not been flown or bench verified. Exact reference gains are preserved; they are not evidence that these gains stabilize an F450 with BNO055 and 50 Hz ESCs. See [VALIDATION.md](VALIDATION.md) for executed checks and results.
+This directory retains the archival BNO055/HC-SR04 laptop-control implementation. Build it separately from the legacy gesture firmware in the parent repository. It has not been flown or bench verified. Exact reference gains are preserved; they are not evidence that these gains stabilize an F450 with BNO055 and 50 Hz ESCs. See [VALIDATION.md](VALIDATION.md) for executed checks and results.
+
+Stage 3 safety policy and propeller-free procedures are in [docs/testing-and-validation.md](docs/testing-and-validation.md). `Safety.h` supplies the sequence/token barrier and latched state checks shared with native tests. The motor rotations below are intended wiring/propulsion directions, **not physically verified directions**.
 
 ## Files and build
 
@@ -23,14 +27,16 @@ python -m platformio run -d f450 -t upload
 
 Run those commands from the repository root. Upload is an intentional separate operation; this implementation has not been uploaded during development.
 
+The pulse-output behavior described below is historical: closure does not attach/write LEDC while `propulsionOutputsReleased=false`, and ARM reports ARCHIVAL_OUTPUTS_INHIBITED. Do not release this gate for the installed MPU6050 aircraft.
+
 ## Wiring and coordinate convention
 
 | Device | Connection |
 |---|---|
-| M1 front-right CW | GPIO25 |
-| M2 front-left CCW | GPIO26 |
-| M3 rear-left CW | GPIO32 |
-| M4 rear-right CCW | GPIO33 |
+| M1 front-right CCW | GPIO25 |
+| M2 front-left CW | GPIO26 |
+| M3 rear-left CCW | GPIO32 |
+| M4 rear-right CW | GPIO33 |
 | BNO055 SDA / SCL | GPIO21 / GPIO22 |
 | BNO055 address / supply | 0x29 / 3.3 V |
 | HC-SR04 trigger / echo | GPIO18 / GPIO19 |
@@ -90,10 +96,10 @@ Reference outputs are `1.024*(T−R−P−Y, T−R+P+Y, T+R+P−Y, T+R−P+Y)` i
 
 | Motor | Equation | +roll | +pitch | +yaw |
 |---|---|---|---|---|
-| M1 front-right CW | T−R+P−Y | decrease | increase | decrease |
-| M2 front-left CCW | T+R+P+Y | increase | increase | increase |
-| M3 rear-left CW | T+R−P−Y | increase | decrease | decrease |
-| M4 rear-right CCW | T−R−P+Y | decrease | decrease | increase |
+| M1 front-right CCW | T−R+P+Y | decrease | increase | increase |
+| M2 front-left CW | T+R+P−Y | increase | increase | decrease |
+| M3 rear-left CCW | T+R−P+Y | increase | decrease | increase |
+| M4 rear-right CW | T−R−P−Y | decrease | decrease | decrease |
 
 Negative corrections reverse these effects. Left lift produces right-down roll, front lift produces nose-up pitch; CCW rotor acceleration produces clockwise body reaction. Mathematical checks do not verify actual motor direction, propeller orientation or sensor mounting.
 
@@ -117,11 +123,11 @@ ALT captures current collective as feedforward and starts its internal target at
 
 Manual mode uses continuous `CMD.throttle` in microseconds, controlled by the GUI slider or Up/Down keys (2 µs per 50 Hz command). ALTITUDE_HOLD ignores this field so manual and altitude controllers cannot fight. MANUAL captures the present collective and clears altitude history; the GUI adopts the reported collective for its slider. SPACE neutralizes roll/pitch/yaw/climb and holds collective; X stops everything. Old clients omitting throttle retain the last manual demand. Legacy BASE remains disarmed-only; a value above 1180 must return to idle before ARM. Choosing an ALT target never changes manual throttle.
 
-State transitions are explicit: BOOT → SENSOR_INITIALIZATION → STARTUP_REFERENCE → DISARMED; ARM passes through ARMING_CHECKS to ARMED or returns a specific rejection. Link/range failure enters FAILSAFE; IMU, motor and timing errors enter FAULT. Both clear armed state and write cutoff. STOP/DISARM enters DISARMED; recovery still requires healthy sensors, idle throttle and a new ARM. BOOT and ARMING_CHECKS can be shorter than a telemetry interval. Battery telemetry reports NOT_INSTALLED: no battery sampling or voltage failsafe is claimed. Invalid PID updates are rejected atomically with INVALID_PID and do not disturb the active gains or renew command freshness.
+State transitions are explicit: BOOT → SENSOR_INITIALIZATION → STARTUP_REFERENCE → DISARMED. ARM checks the existing state before any transition; a valid request passes through ARMING_CHECKS to ARMED. Link/range failure latches FAILSAFE; IMU, PWM, motor, timing and watchdog initialization/feed errors latch FAULT. Both clear armed state and write minimum pulses. STOP/DISARM enters DISARMED from ordinary operation but **cannot clear FAILSAFE or FAULT**, and cannot bypass startup reference capture. Sensor recovery alone cannot rearm. FAULT requires reboot after correcting the cause. FAILSAFE requires fresh neutral commands, idle collective, healthy/fresh IMU, level attitude, AP connection and valid PWM/watchdog; a range-loss latch additionally requires three fresh consecutive range samples. Press “Clear recoverable failsafe” (CLEAR_FAULT with current token), then obtain the new token and press ARM separately. Clearance itself never arms. Battery reports NOT_INSTALLED. Invalid PID updates are rejected atomically without changing gains or renewing pilot freshness.
 
 ## Ground station
 
-Install Python 3.10+ with Tcl/Tk (included in standard Windows installer); no pip GUI dependency is needed. On Linux install your distribution's `python3-tk`. Join **F450_DRONE**, password **F450Drone2026**, then:
+Install Python 3.10+ with Tcl/Tk (included in standard Windows installer); no pip GUI dependency is needed. On Linux install your distribution's `python3-tk`. For electronics-only archival testing, copy `F450_ESP32_FlightController/local_f450_wifi.example.h` to ignored `local_f450_wifi.h`, configure a private 8–63 character AP password and rebuild. Default credentials do not start an AP. Propulsion outputs remain inhibited. Join the configured AP, then:
 
 ```powershell
 python f450/f450_ground_station.py
@@ -133,15 +139,24 @@ Current gains are displayed separately from editable fields. ± buttons change b
 
 ## UDP protocol, version 1
 
-UTF-8 JSON datagrams, commands to 192.168.4.1:4210, replies/telemetry to sender IP:4211. This documented JSON protocol replaces the suggested CSV to allow explicit gain arrays and status fields. Max command length 1199 bytes. No authentication beyond AP password; use a dedicated network. First valid envelope claims ownership until disarmed RELEASE/reboot. Restarted clients with a new sequence should send RELEASE first if OLD_SEQUENCE occurs. Only valid newer CMD packets refresh the command-loss timer. Other traffic cannot keep the aircraft armed.
+UTF-8 JSON datagrams, commands to 192.168.4.1:4210, replies/telemetry to sender IP:4211. Maximum command length is 1199 bytes. Stage 4 replaces implicit first-packet ownership with GET discovery followed by explicit HELLO acquisition. GET without a session is read-only discovery from any IP; it never claims ownership or changes sequence state. HELLO must include the discovered uint32 `session` generation and requires disarmed output. When unowned, HELLO establishes its own fresh sequence window. When the current owner resumes, HELLO must advance the existing sequence window; foreign acquisition while occupied is rejected. A successful HELLO invalidates the ARM token and requires a fresh valid CMD before ARM. Only valid newer owner/session CMD packets refresh command-loss detection; queries, HELLO, PID edits and other traffic do not. AP-password access remains the only authentication; session IDs are replay barriers, not cryptographic credentials.
 
-Each command has `type` string and `seq` unsigned 32-bit integer. Sequences must advance with modular difference in (0, 2³¹). Invalid command payloads consume their envelope sequence but do not refresh flight commands. STOP/DISARM are accepted from any sender regardless of sequence. A disarmed RELEASE from the current owner also bypasses sequence comparison to allow a restarted client to recover; the GUI sends RELEASE at startup. ACK: `{"type":"ACK","seq":123,"ok":true,"reason":"OK"}`; rejected commands return ok false and a reason. Malformed JSON/envelopes are ignored.
+Each command has `type` string and `seq` unsigned 32-bit integer. Sequences advance with unsigned modular difference in (0, 2³¹); duplicate, backward and exactly half-range jumps are rejected. Malformed JSON, missing fields and negative/fractional/overflow/bool/string sequences are ignored. Valid envelopes with invalid payloads consume sequence but do not refresh pilot commands. STOP/DISARM always cut off even when stale or foreign, advance the high-water mark only for a newer owner sequence, and invalidate the arming token. They never clear a fault latch. Foreign STOP cannot poison the owner's sequence high-water mark.
+
+ARM requires `arm_token`, an unsigned 32-bit value returned in ACK/TEL. STOP/DISARM, fault events, successful ARM, clearance, HELLO and RELEASE invalidate it. A delayed ARM with an old token is rejected even if its sequence is newer. Token initialization is randomized at boot and cannot wrap/reuse within a boot. Fault-latch and fresh-input checks are unchanged. The GUI supplies tokens on explicit button presses, never automatic ARM retries.
+
+All owner commands now include `session` in addition to `type` and `seq`. RELEASE is accepted only from the current owner IP, in the current generation, while disarmed, with a strictly newer sequence. Every rejected RELEASE—including armed, duplicate, delayed, foreign, malformed or retired-session requests—leaves ownership, order, ARM token, control freshness and safety state unchanged. A successful RELEASE retires the generation, clears ownership/order/fresh-CMD state, invalidates the ARM token and leaves the stopped/fault state intact. Repeated RELEASE while unowned returns NO_SESSION. Old commands/HELLO/RELEASE cannot act on a later generation, even from the same IP. Generations are randomized at boot and increment on release without reuse; exhaustion requires reboot. A new laptop obtains the new generation with GET and HELLO using any valid initial sequence. No command other than HELLO can claim an empty slot.
+
+ACK retains type/seq/ok/reason/arm_token and adds session/owned/owner_active/last_seq/seq_set. `owned` means the responding IP matches the active owner; the GUI only confirms local ownership after a matching successful HELLO ACK. TEL retains its existing data and adds session/owned/owner_active. The old implicit-acquisition client must be upgraded alongside this firmware: accepting commands without a generation would defeat cross-session replay protection.
 
 | Type | Additional fields | Meaning |
 |---|---|---|
 | CMD | roll,pitch,yaw,climb: finite numbers −1..1; optional throttle: 1180..1800 µs | pilot input, 50 Hz; throttle ignored during altitude hold |
-| ARM / DISARM / STOP | none | explicit arm / cutoff |
-| GET | none | ACK includes current gains and base |
+| ARM | arm_token: uint32 from latest ACK/TEL | explicit arm after all checks; token consumed on success |
+| DISARM / STOP | none | immediate minimum-pulse output; invalidate token, preserve FAULT/FAILSAFE |
+| CLEAR_FAULT | arm_token: current uint32 | explicit recoverable FAILSAFE clearance only; never arms; FAULT requires reboot |
+| GET | session optional | no session: read-only discovery; with session: ordered owner query; ACK includes gains/base and ownership metadata |
+| HELLO | session: uint32 from discovery | disarmed acquisition; current owner resume requires newer sequence |
 | PID | gains: six arrays of three finite numbers, each 0..100 | order roll angle, pitch angle, roll rate, pitch rate, yaw rate, altitude; Kp,Ki,Kd |
 | RESET | none | reference defaults plus zero altitude gains |
 | SAVE | none | persist current gains only, disarmed |
@@ -149,9 +164,9 @@ Each command has `type` string and `seq` unsigned 32-bit integer. Sequences must
 | ALT | value: 6.03..204.03 | enable hold and set target frame height cm |
 | ALT_VALIDATE | none | disarmed operator acknowledgement of configured altitude gains; requires healthy range |
 | MANUAL | none | disable hold and clear altitude PID history |
-| RELEASE | none | release owner and sequence tracking, disarmed |
+| RELEASE | session plus normal seq | newer current-owner request only, disarmed; retire session and token, never clear a fault |
 
-Example: `{"type":"CMD","seq":123,"roll":0,"pitch":0,"yaw":0,"climb":0}`.
+Example after GET/HELLO: `{"type":"CMD","session":42,"seq":123,"roll":0,"pitch":0,"yaw":0,"climb":0}`. Replace 42 with the acknowledged session generation.
 
 TEL packets at 10 Hz retain the existing angles, gyro/bias, gains, distance, height, target, outputs and motors. Added fields are mode, state, collective_us, manual_throttle_us, alt_error, alt_configured, alt_validated, range_age_ms, range_rejected, reference_samples, pwm_ok, arming_available, arming_block_reason and battery_status. `target` is the ramped controller target; range distance is latest accepted raw slant range, and height is filtered vertical height. Outputs are roll/pitch/yaw/altitude corrections in µs, motors are M1..M4 µs. Absolute yaw is not geographic heading. The GUI accepts only 192.168.4.1 and reports telemetry loss after 500 ms.
 
@@ -169,4 +184,4 @@ TEL packets at 10 Hz retain the existing angles, gyro/bias, gains, distance, hei
 
 With propellers removed: scope all pins at boot, ARM, STOP and watchdog reset; confirm M1..M4 ordering; tilt each axis and verify corrective outputs oppose the motion; cross heading ±180°; move during startup to ensure capture delays; unplug IMU and interrupt UDP to confirm cutoff. Check range at several known distances and confirm +4.03 cm offset. Send duplicate sequences, NaN, Infinity, malformed arrays and out-of-range values; confirm rejection without changing gains or renewing command freshness. Test gain query/update/reset, NVS save/reboot, and loss of valid echoes during hold. Measure control timing under sustained UDP traffic before powered fixture testing. No unrestrained flight should be inferred from mathematical tests or compilation.
 
-No reference-ready indication: verify address 0x29, wiring, sensor status and stationary window; reboot after fixing initialization failures. OLD_SEQUENCE/OWNER_BUSY: disarm, RELEASE, then query again. No telemetry: check Wi-Fi subnet, UDP firewall and port conflicts. ARM rejected: neutralize keys and inspect IMU age/reference/tilt. Altitude rejected: inspect range validity and configure altitude Kp. Repeated timing faults: inspect task loading and I2C behavior; do not enlarge thresholds to conceal missed deadlines.
+No reference-ready indication: check address, wiring and the stationary window. OLD_SEQUENCE: while disarmed use Connect / resume; GET synchronizes the current owner's sequence before HELLO. OWNER_BUSY: the other owner must disarm and validly RELEASE; a foreign laptop cannot force release. A lost/rejected HELLO never confirms ownership. Successful Release ownership stops pilot sending until another explicit Connect / resume. Rejected RELEASE retains ownership only when ACK confirms the same active generation/IP; timeout marks ownership unconfirmed. Closing sends best-effort STOP and RELEASE without waiting for delivery, so a later restart may need same-IP resume. No telemetry: check Wi-Fi/firewall. ARM rejected: inspect token, reference, neutral axes and input age. Altitude rejected: inspect range validity and configured/reviewed gains. Never enlarge timing thresholds to conceal missed deadlines.

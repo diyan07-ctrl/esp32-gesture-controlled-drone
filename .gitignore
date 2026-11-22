@@ -10,5 +10,6 @@ build/
 __pycache__/
 local_secrets.h
 local_wifi.h
+local_f450_wifi.h
 .env
 dist/

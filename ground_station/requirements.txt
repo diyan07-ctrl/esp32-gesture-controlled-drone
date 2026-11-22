@@ -1,1 +1,3 @@
+# UDP monitors use the Python standard library. This dependency is only for
+# tools/capture_drone_serial.py and tools/shadow_command.py (optional serial tools).
 pyserial==3.5

@@ -47,6 +47,10 @@ check(task.includes('esc.write(motors,safety.armed()||safety.state==State::ARMIN
 check(compact(read('firmware/common/esc.h')).includes('if(!attached)return'),'ESC gate missing');
 const ini=read('platformio.ini');
 check(ini.includes('espressif32@6.9.0')&&ini.includes('[env:glove]')&&ini.includes('[env:drone]'),'build targets/platform pin missing');
+check(ini.includes('default_envs = drone_sensors'),'default must be motor/radio-free MPU6050 diagnostics');
+const f450Main=read('f450/F450_ESP32_FlightController/F450_ESP32_FlightController.ino');
+check(f450Main.includes('constexpr bool propulsionOutputsReleased = false;'),'archival F450 outputs must remain inhibited');
+check(!f450Main.includes('F450Drone2026'),'published AP credential must not remain in runnable source');
 const ci=read('.github/workflows/firmware-ci.yml');
 check(ci.includes('pio run -e ${{ matrix.target }}')&&ci.includes('target: [glove, drone, motor_test, glove_sensors, drone_sensors, drone_bench, drone_pid_bench]'),'CI must build all firmware images');
 const benchMain=read('firmware/drone_bench/src/main.cpp');

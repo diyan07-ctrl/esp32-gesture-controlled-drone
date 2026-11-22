@@ -11,6 +11,14 @@
 #error "This firmware requires Arduino-ESP32 2.x; verified with 2.0.17"
 #endif
 #include "Protocol.h"
+#include "Dispatcher.h"
+#if __has_include("local_f450_wifi.h")
+#include "local_f450_wifi.h"
+#else
+#include "local_f450_wifi.example.h"
+#endif
+// Archival hardware differs from the installed MPU6050 aircraft. No output release.
+constexpr bool propulsionOutputsReleased = false;
 // Supported toolchain: Arduino ESP32 2.0.17. Sensor axes: X forward, Y right, Z down.
 const int pins[4] = {25, 26, 32, 33};
 Adafruit_BNO055 bno(55, 0x29);
@@ -22,17 +30,10 @@ PID pid[6];
 StartupReference startup;
 HeightEstimator height;
 AltitudeController altitude;
-enum class FlightState {
-  BOOT,
-  SENSOR_INITIALIZATION,
-  STARTUP_REFERENCE,
-  DISARMED,
-  ARMING_CHECKS,
-  ARMED,
-  FAILSAFE,
-  FAULT
-};
-FlightState state = FlightState::BOOT;
+SafetyLatch safety;
+FlightState &state = safety.state;
+CommandOrder order;
+CommandSession session;
 const char *stateName() {
   switch (state) {
   case FlightState::BOOT:
@@ -55,26 +56,30 @@ const char *stateName() {
 }
 float manualThrottleUs = 1180;
 bool pwmOK = true;
+bool watchdogOK = false;
 volatile bool echoPending = false, echoHigh = false;
 float attitude[3] = {}, absoluteAngles[3] = {}, rates[3] = {}, bias[3] = {}, pilot[4] = {};
 float outputs[4] = {}, motors[4] = {1000, 1000, 1000, 1000};
 float distanceCm = 0, heightCm = 0, targetCm = 0, baseThrottle = 1180;
-bool ready = false, sensorOK = false, armed = false, altHold = false, ownerSet = false,
-     seqSet = false;
-uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, lastSequence = 0, controlTime = 0,
-         overruns = 0;
+bool ready = false, sensorOK = false, armed = false, altHold = false;
+uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, controlTime = 0, overruns = 0;
 const char *fault = "STARTUP";
-IPAddress owner;
-const char *armBlockReason() {
+
+const char *inputBlockReason() {
+  if (!propulsionOutputsReleased)
+    return "ARCHIVAL_OUTPUTS_INHIBITED";
   if (armed)
     return "ALREADY_ARMED";
   if (!pwmOK)
     return "PWM_INITIALIZATION";
+  if (!watchdogOK)
+    return "WATCHDOG_INITIALIZATION";
   if (!ready)
     return "WAIT_STARTUP_REFERENCE";
   if (!sensorOK || !fresh(micros(), sensorTime, 50000))
     return "IMU_NOT_HEALTHY";
-  if (!fresh(micros(), commandTime, 300000) || WiFi.softAPgetStationNum() == 0)
+  if (!session.active || !session.commandSeen || !fresh(micros(), commandTime, 300000) ||
+      WiFi.softAPgetStationNum() == 0)
     return "COMMAND_NOT_FRESH";
   if (manualThrottleUs > 1180)
     return "THROTTLE_NOT_IDLE";
@@ -84,6 +89,14 @@ const char *armBlockReason() {
   if (fabsf(attitude[0]) >= 5 || fabsf(attitude[1]) >= 5)
     return "ATTITUDE_NOT_LEVEL";
   return "NONE";
+}
+const char *armBlockReason() {
+  const char *latch = safety.block();
+  if (strcmp(latch, "NONE"))
+    return latch;
+  if (order.exhausted)
+    return "ARM_TOKEN_EXHAUSTED_REBOOT";
+  return inputBlockReason();
 }
 volatile uint32_t echoRise = 0, echoWidth = 0;
 portMUX_TYPE echoMux = portMUX_INITIALIZER_UNLOCKED;
@@ -102,13 +115,16 @@ void IRAM_ATTR echoISR() {
   portEXIT_CRITICAL_ISR(&echoMux);
 }
 void pwm() {
+  if (!propulsionOutputsReleased)
+    return;
   uint32_t duties[4];
   bool valid = true;
   for (int i = 0; i < 4; i++)
     valid = pulseToDuty(motors[i], duties[i]) && valid;
   if (!valid) {
     armed = false;
-    state = FlightState::FAULT;
+    safety.fault();
+    order.invalidate();
     fault = "INVALID_MOTOR";
     altitude.manual();
     altHold = false;
@@ -121,15 +137,20 @@ void pwm() {
     ledcWrite(i, duties[i]);
 }
 void stop(const char *why) {
-  state = (!strcmp(why, "PILOT_STOP"))                                   ? FlightState::DISARMED
-          : (!strcmp(why, "COMMAND_LOSS") || !strcmp(why, "RANGE_LOSS")) ? FlightState::FAILSAFE
-                                                                         : FlightState::FAULT;
+  if (!strcmp(why, "PILOT_STOP"))
+    safety.stop();
+  else if (!strcmp(why, "COMMAND_LOSS") || !strcmp(why, "RANGE_LOSS"))
+    safety.fail(!strcmp(why, "RANGE_LOSS"));
+  else
+    safety.fault();
+  order.invalidate();
   altitude.manual();
   altitude.collective = 1180;
   manualThrottleUs = 1180;
   armed = false;
   altHold = false;
-  fault = why;
+  if (strcmp(why, "PILOT_STOP") || (state != FlightState::FAULT && state != FlightState::FAILSAFE))
+    fault = why;
   for (auto &p : pid)
     p = PID{};
   for (float &o : outputs)
@@ -156,7 +177,11 @@ void sensorTask(void *) {
   // Adafruit initialization and checked register acquisition use its default unit configuration.
   bool initialized = bno.begin(OPERATION_MODE_IMUPLUS);
   xSemaphoreTake(guard, portMAX_DELAY);
-  state = initialized ? FlightState::STARTUP_REFERENCE : FlightState::FAULT;
+  if (!initialized) {
+    safety.fault();
+    order.invalidate();
+  } else if (state != FlightState::FAULT)
+    state = FlightState::STARTUP_REFERENCE;
   if (!initialized)
     fault = "IMU_INITIALIZATION";
   xSemaphoreGive(guard);
@@ -187,8 +212,10 @@ void sensorTask(void *) {
       sensorOK = valid;
       ready = startup.ready;
       if (!wasReady && ready) {
-        fault = "NONE";
-        state = FlightState::DISARMED;
+        if (state == FlightState::STARTUP_REFERENCE) {
+          fault = "NONE";
+          state = FlightState::DISARMED;
+        }
       }
       if (ready && valid) {
         (startup.reference.inverse() * q).angles(attitude);
@@ -210,7 +237,11 @@ void sensorTask(void *) {
 void controlTask(void *) {
   TickType_t tick = xTaskGetTickCount();
   uint32_t previous = micros();
-  esp_task_wdt_add(NULL);
+  xSemaphoreTake(guard, portMAX_DELAY);
+  watchdogOK = (esp_task_wdt_add(NULL) == ESP_OK) && watchdogOK;
+  if (!watchdogOK)
+    stop("WATCHDOG_INITIALIZATION");
+  xSemaphoreGive(guard);
   for (;;) {
     vTaskDelayUntil(&tick, pdMS_TO_TICKS(4));
     uint32_t now = micros();
@@ -226,7 +257,8 @@ void controlTask(void *) {
     }
     if (armed && (!sensorOK || !fresh(now, sensorTime, 50000)))
       stop("IMU_STALE");
-    if (armed && (!fresh(now, commandTime, 300000) || WiFi.softAPgetStationNum() == 0))
+    if (armed && (!session.active || !session.commandSeen || !fresh(now, commandTime, 300000) ||
+                  WiFi.softAPgetStationNum() == 0))
       stop("COMMAND_LOSS");
     if (armed && altHold && !height.healthy(now))
       stop("RANGE_LOSS");
@@ -249,7 +281,12 @@ void controlTask(void *) {
       pwm();
     }
     xSemaphoreGive(guard);
-    esp_task_wdt_reset();
+    if (esp_task_wdt_reset() != ESP_OK) {
+      xSemaphoreTake(guard, portMAX_DELAY);
+      watchdogOK = false;
+      stop("WATCHDOG_FEED_FAILED");
+      xSemaphoreGive(guard);
+    }
   }
 }
 void sendDoc(JsonDocument &d, IPAddress ip) {
@@ -271,6 +308,136 @@ void parameters(JsonDocument &d) {
   }
   d["base"] = baseThrottle;
 }
+DispatchResult applyCommand(const char *type, JsonDocument &d, JsonDocument &reply) {
+  bool ok = false;
+  const char *reason = "INVALID";
+  if (!strcmp(type, "CMD")) {
+    float v[4];
+    float collective = manualThrottleUs;
+    ok = parsePilot(d, v, collective);
+    if (ok) {
+      if (!altitude.active)
+        manualThrottleUs = collective;
+      for (int i = 0; i < 4; i++)
+        pilot[i] = v[i];
+      commandTime = micros();
+    }
+
+  } else if (!strcmp(type, "ARM")) {
+    reason = armBlockReason();
+    if (!strcmp(reason, "NONE")) {
+      if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
+        reason = "STALE_ARM_TOKEN";
+      else if (authorizeArm(safety, order, d["arm_token"].as<uint32_t>(), true)) {
+        for (auto &p : pid)
+          p = PID{};
+        armed = true;
+        altitude.collective = 1180;
+        fault = "NONE";
+        ok = true;
+      }
+    }
+  } else if (!strcmp(type, "CLEAR_FAULT")) {
+    if (!d["arm_token"].is<uint32_t>() || !order.tokenMatches(d["arm_token"].as<uint32_t>()))
+      reason = "STALE_ARM_TOKEN";
+    else {
+      ok = safety.clear(!strcmp(inputBlockReason(), "NONE"), height.healthy(micros()));
+      if (ok) {
+        fault = "NONE";
+        order.invalidate();
+      } else
+        reason = state == FlightState::FAULT ? "FAULT_REBOOT_REQUIRED"
+                                             : "CLEAR_REQUIRES_HEALTHY_FAILSAFE";
+    }
+  } else if (!strcmp(type, "PID")) {
+    Gain candidate[6];
+    ok = parseGains(d, candidate);
+    if (!ok)
+      reason = "INVALID_PID";
+    if (ok) {
+      altitude.manual();
+      altitude.validated = false;
+      altHold = false;
+      manualThrottleUs = altitude.collective;
+      memcpy(gains, candidate, sizeof(gains));
+      for (auto &p : pid)
+        p = PID{};
+    }
+    parameters(reply);
+  } else if (!strcmp(type, "RESET")) {
+    memcpy(gains, defaults, sizeof(gains));
+    for (auto &p : pid)
+      p = PID{};
+    altitude.manual();
+    altitude.validated = false;
+    manualThrottleUs = altitude.collective;
+    altHold = false;
+    parameters(reply);
+    ok = true;
+  } else if (!strcmp(type, "BASE")) {
+    float v;
+    ok = !armed && number(d["value"], 1180, 1800, v);
+    if (ok) {
+      baseThrottle = v;
+      manualThrottleUs = v;
+    }
+  } else if (!strcmp(type, "ALT")) {
+    float v;
+    ok = number(d["value"], 6.03, 204.03, v);
+    if (ok) {
+      if (altitude.active) {
+        ok = height.healthy(micros());
+        if (ok)
+          altitude.requestedTarget = v;
+      } else {
+        ok = altitude.enable(v, height, gains[5], micros());
+        if (ok)
+          altitude.requestedTarget = v;
+      }
+    }
+    if (ok) {
+      targetCm = v;
+      altHold = true;
+    } else
+      reason = "ALT_REQUIRES_VALIDATED_GAINS_AND_RANGE";
+  } else if (!strcmp(type, "ALT_VALIDATE")) {
+    ok = !armed && gains[5].p > 0 && height.healthy(micros());
+    if (ok)
+      altitude.validated = true;
+    else
+      reason = "VALIDATE_DISARMED_WITH_GAINS_AND_RANGE";
+  } else if (!strcmp(type, "MANUAL")) {
+    manualThrottleUs = altitude.collective;
+    altitude.manual();
+    altHold = false;
+    ok = true;
+  } else if (!strcmp(type, "SAVE")) {
+    ok = !armed;
+    if (ok) {
+      nv.begin("f450", false);
+      ok = nv.putBytes("gains", gains, sizeof(gains)) == sizeof(gains);
+      nv.end();
+    }
+  }
+  return {ok, ok ? "OK" : reason};
+}
+struct FirmwareHost {
+  bool isArmed() const {
+    return armed;
+  }
+  void stop() {
+    ::stop("PILOT_STOP");
+  }
+  void sessionChanged() {
+    commandTime = 0;
+  }
+  void parameters(JsonDocument &reply) {
+    ::parameters(reply);
+  }
+  DispatchResult command(const char *type, JsonDocument &d, JsonDocument &reply) {
+    return applyCommand(type, d, reply);
+  }
+};
 void packet() {
   int n = udp.parsePacket();
   if (!n)
@@ -283,153 +450,21 @@ void packet() {
     return;
   }
   n = udp.read(buffer, 1199);
-  buffer[n] = 0;
-  StaticJsonDocument<2048> d;
-  StaticJsonDocument<2048> reply;
-  reply["type"] = "ACK";
-  if (deserializeJson(d, buffer, n) || !d["seq"].is<uint32_t>() || !d["type"].is<const char *>())
+  if (n <= 0)
     return;
-  uint32_t seq = d["seq"];
-  const char *type = d["type"];
-  reply["seq"] = seq;
-  bool ok = false;
-  const char *reason = "INVALID";
+  StaticJsonDocument<2048> reply;
+  FirmwareHost host;
   xSemaphoreTake(guard, portMAX_DELAY);
-  // STOP is deliberately accepted even if its sequence is old or its sender differs.
-  if (!strcmp(type, "STOP") || !strcmp(type, "DISARM")) {
-    stop("PILOT_STOP");
-    ok = true;
-  } else if (ownerSet && ip != owner) {
-    reason = "OWNER_BUSY";
-  } else if (!strcmp(type, "RELEASE") && !armed) {
-    ownerSet = false;
-    seqSet = false;
-    ok = true;
-  } else if (seqSet && !newer(seq, lastSequence)) {
-    reason = "OLD_SEQUENCE";
-  } else {
-    owner = ip;
-    ownerSet = true;
-    seqSet = true;
-    lastSequence = seq;
-    if (!strcmp(type, "CMD")) {
-      float v[4];
-      float collective = manualThrottleUs;
-      ok = parsePilot(d, v, collective);
-      if (ok) {
-        if (!altitude.active)
-          manualThrottleUs = collective;
-        for (int i = 0; i < 4; i++)
-          pilot[i] = v[i];
-        commandTime = micros();
-      }
-    } else if (!strcmp(type, "GET")) {
-      parameters(reply);
-      ok = true;
-    } else if (!strcmp(type, "ARM")) {
-      if (armed) {
-        reason = "ALREADY_ARMED";
-      } else {
-        state = FlightState::ARMING_CHECKS;
-        reason = armBlockReason();
-        ok = !strcmp(reason, "NONE");
-        if (ok) {
-          for (auto &p : pid)
-            p = PID{};
-          armed = true;
-          state = FlightState::ARMED;
-          altitude.collective = 1180;
-          fault = "NONE";
-        } else {
-          state = FlightState::DISARMED;
-          fault = reason;
-        }
-      }
-    } else if (!strcmp(type, "PID")) {
-      Gain candidate[6];
-      ok = parseGains(d, candidate);
-      if (!ok)
-        reason = "INVALID_PID";
-      if (ok) {
-        altitude.manual();
-        altitude.validated = false;
-        altHold = false;
-        manualThrottleUs = altitude.collective;
-        memcpy(gains, candidate, sizeof(gains));
-        for (auto &p : pid)
-          p = PID{};
-      }
-      parameters(reply);
-    } else if (!strcmp(type, "RESET")) {
-      memcpy(gains, defaults, sizeof(gains));
-      for (auto &p : pid)
-        p = PID{};
-      altitude.manual();
-      altitude.validated = false;
-      manualThrottleUs = altitude.collective;
-      altHold = false;
-      parameters(reply);
-      ok = true;
-    } else if (!strcmp(type, "BASE")) {
-      float v;
-      ok = !armed && number(d["value"], 1180, 1800, v);
-      if (ok) {
-        baseThrottle = v;
-        manualThrottleUs = v;
-      }
-    } else if (!strcmp(type, "ALT")) {
-      float v;
-      ok = number(d["value"], 6.03, 204.03, v);
-      if (ok) {
-        if (altitude.active) {
-          ok = height.healthy(micros());
-          if (ok)
-            altitude.requestedTarget = v;
-        } else {
-          ok = altitude.enable(v, height, gains[5], micros());
-          if (ok)
-            altitude.requestedTarget = v;
-        }
-      }
-      if (ok) {
-        targetCm = v;
-        altHold = true;
-      } else
-        reason = "ALT_REQUIRES_VALIDATED_GAINS_AND_RANGE";
-    } else if (!strcmp(type, "ALT_VALIDATE")) {
-      ok = !armed && gains[5].p > 0 && height.healthy(micros());
-      if (ok)
-        altitude.validated = true;
-      else
-        reason = "VALIDATE_DISARMED_WITH_GAINS_AND_RANGE";
-    } else if (!strcmp(type, "MANUAL")) {
-      manualThrottleUs = altitude.collective;
-      altitude.manual();
-      altHold = false;
-      ok = true;
-    } else if (!strcmp(type, "SAVE")) {
-      ok = !armed;
-      if (ok) {
-        nv.begin("f450", false);
-        ok = nv.putBytes("gains", gains, sizeof(gains)) == sizeof(gains);
-        nv.end();
-      }
-    } else if (!strcmp(type, "RELEASE")) {
-      ok = !armed;
-      if (ok) {
-        ownerSet = false;
-        seqSet = false;
-      }
-    }
-  }
-  reply["ok"] = ok;
-  reply["reason"] = ok ? "OK" : reason;
+  bool respond = dispatchDatagram(buffer, n, uint32_t(ip), session, order, host, reply);
   xSemaphoreGive(guard);
-  sendDoc(reply, ip);
+  if (respond)
+    sendDoc(reply, ip);
 }
 void telemetry() {
+  static uint32_t telemetrySequence = 0;
   StaticJsonDocument<3000> d;
   d["type"] = "TEL";
+  d["seq"] = telemetrySequence++;
   xSemaphoreTake(guard, portMAX_DELAY);
   auto arr = [&](const char *key, float *values, int n) {
     JsonArray a = d.createNestedArray(key);
@@ -462,6 +497,8 @@ void telemetry() {
   d["collective_us"] = altitude.collective;
   d["manual_throttle_us"] = manualThrottleUs;
   d["state"] = stateName();
+  d["arm_token"] = order.token;
+  d["range_recovery_samples"] = height.count;
   d["reference_samples"] = startup.count;
   d["battery_status"] = "NOT_INSTALLED";
   d["pwm_ok"] = pwmOK;
@@ -472,22 +509,43 @@ void telemetry() {
   d["stations"] = WiFi.softAPgetStationNum();
   d["fault"] = fault;
   d["overruns"] = overruns;
-  d["watchdog"] = "ACTIVE_1S";
+  d["watchdog"] = watchdogOK ? "REGISTERED_1S" : "FAILED";
   d["control_age_us"] = micros() - controlTime;
-  IPAddress dest = owner;
+  IPAddress dest(session.owner);
+  bool hasOwner = session.active;
+  d["session"] = session.generation;
+  d["owner_active"] = session.active;
+  d["owned"] = session.active;
   xSemaphoreGive(guard);
-  if (ownerSet)
+  if (hasOwner)
     sendDoc(d, dest);
 }
 void setup() {
   Serial.begin(115200);
   guard = xSemaphoreCreateMutex();
+  if (!guard) {
+    for (int pin : pins)
+      pinMode(pin, INPUT);
+    Serial.println("FAULT: mutex allocation; reboot required");
+    while (true)
+      delay(1000);
+  }
+  order.token = esp_random();
+  session.generation = esp_random();
   memcpy(gains, defaults, sizeof(gains));
   for (int i = 0; i < 4; i++) {
-    pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;
-    ledcAttachPin(pins[i], i);
+    pinMode(pins[i], INPUT);
+    if (propulsionOutputsReleased) {
+      pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;
+      ledcAttachPin(pins[i], i);
+    }
   }
   pwm();
+  if (!pwmOK) {
+    safety.fault();
+    fault = "PWM_INITIALIZATION";
+    order.invalidate();
+  }
   nv.begin("f450", true);
   Gain saved[6];
   if (nv.getBytesLength("gains") == sizeof(saved) &&
@@ -500,21 +558,33 @@ void setup() {
       memcpy(gains, saved, sizeof(gains));
   }
   nv.end();
-  state = FlightState::SENSOR_INITIALIZATION;
+  if (state != FlightState::FAULT)
+    state = FlightState::SENSOR_INITIALIZATION;
   Wire.begin(21, 22);
   Wire.setClock(400000);
   Wire.setTimeOut(5);
   pinMode(18, OUTPUT);
   pinMode(19, INPUT);
   attachInterrupt(digitalPinToInterrupt(19), echoISR, CHANGE);
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
-                    IPAddress(255, 255, 255, 0));
-  WiFi.softAP("F450_DRONE", "F450Drone2026");
-  udp.begin(4210);
-  esp_task_wdt_init(1, true);
-  xTaskCreatePinnedToCore(sensorTask, "sensors", 4096, NULL, 2, NULL, 0);
-  xTaskCreatePinnedToCore(controlTask, "control", 4096, NULL, 4, NULL, 1);
+  // Empty/default credentials do not start the AP. Brownout protection stays enabled.
+  if (strlen(F450_AP_PASSWORD) >= 8 && strlen(F450_AP_PASSWORD) <= 63) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
+                      IPAddress(255, 255, 255, 0));
+    if (WiFi.softAP(F450_AP_SSID, F450_AP_PASSWORD))
+      udp.begin(4210);
+  } else {
+    Serial.println("AP disabled: configure private local_f450_wifi.h for electronics-only tests");
+  }
+  watchdogOK = esp_task_wdt_init(1, true) == ESP_OK;
+  BaseType_t sensorCreated = xTaskCreatePinnedToCore(sensorTask, "sensors", 4096, NULL, 2, NULL, 0);
+  BaseType_t controlCreated =
+      xTaskCreatePinnedToCore(controlTask, "control", 4096, NULL, 4, NULL, 1);
+  if (sensorCreated != pdPASS || controlCreated != pdPASS) {
+    xSemaphoreTake(guard, portMAX_DELAY);
+    stop("TASK_ALLOCATION");
+    xSemaphoreGive(guard);
+  }
 }
 void loop() {
   static uint32_t trigger = 0, tel = 0;
@@ -545,14 +615,10 @@ void loop() {
   portEXIT_CRITICAL(&echoMux);
   if (width || timeout) {
     xSemaphoreTake(guard, portMAX_DELAY);
-    bool valid =
-        ready && sensorOK && fresh(micros(), sensorTime, 50000) &&
-        height.update(timeout ? NAN : width * .0343f / 2, attitude[0], attitude[1], micros());
-    if (!valid) {
-      height.latestValid = false;
-      if (!width)
-        height.rejected++;
-    }
+    if (!ready || !sensorOK || !fresh(micros(), sensorTime, 50000))
+      height.invalidate();
+    else
+      height.update(timeout ? NAN : width * .0343f / 2, attitude[0], attitude[1], micros());
     distanceCm = height.slant;
     heightCm = height.height;
     rangeTime = height.time;

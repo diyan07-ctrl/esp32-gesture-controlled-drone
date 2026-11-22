@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Validation results — 2026-11-03
 
 All results below were actually executed locally against this implementation. Hardware results are deliberately separate. The earlier 2026-10-30 tests described a different MPU6050/potentiometer baseline.

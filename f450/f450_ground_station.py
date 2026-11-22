@@ -23,6 +23,12 @@ class Station:
         self.last_rx = 0
         self.next_send = 0
         self.telemetry = {}
+        self.session_id = None
+        self.owns_session = False
+        self.discovery_seq = None
+        self.hello_seq = None
+        self.pilot_enabled = False
+        self.last_tel_seq = None
         self.throttle = tk.DoubleVar(value=1180)
         self.status = tk.StringVar(value='Connect Wi-Fi to F450_DRONE')
         self.ack = tk.StringVar(value='Waiting for configuration')
@@ -32,7 +38,9 @@ class Station:
         ttk.Label(root, text='W/S pitch • A/D roll • Q/E yaw • R/F climb • SPACE neutral • X stop').grid(row=2, column=0, columnspan=7)
         bar = ttk.Frame(root)
         bar.grid(row=3, column=0, columnspan=7)
-        for text, kind in [('ARM', 'ARM'), ('DISARM / STOP', 'STOP'), ('Query gains', 'GET'), ('Reset reference defaults', 'RESET'), ('Save gains to NVS', 'SAVE'), ('Manual throttle', 'MANUAL')]:
+        ttk.Button(bar,text='Connect / resume',command=self.acquire).pack(side='left')
+        ttk.Button(bar,text='Enable pilot input',command=self.enable_pilot).pack(side='left')
+        for text, kind in [('ARM', 'ARM'), ('DISARM / STOP', 'STOP'), ('Release ownership','RELEASE'), ('Clear recoverable failsafe', 'CLEAR_FAULT'), ('Query gains', 'GET'), ('Reset reference defaults', 'RESET'), ('Save gains to NVS', 'SAVE'), ('Manual throttle', 'MANUAL')]:
             ttk.Button(bar, text=text, command=lambda k=kind: self.send(k)).pack(side='left')
         self.entries = []
         self.current = []
@@ -68,22 +76,66 @@ class Station:
         ttk.Label(root,textvariable=self.throttle).grid(row=16,column=0)
         ttk.Button(root,text='Confirm altitude gains bench-reviewed (disarmed)',command=lambda:self.send('ALT_VALIDATE')).grid(row=16,column=1,columnspan=3)
         root.bind('<KeyPress>', self.press)
-        root.bind('<KeyRelease>', lambda e: self.keys.discard(e.keysym.lower()))
-        root.bind('<FocusOut>', lambda e: self.keys.clear())
+        root.bind('<KeyRelease>', self.release_key)
+        root.bind('<FocusOut>', lambda e: self.disable_pilot())
         root.protocol('WM_DELETE_WINDOW', self.close)
-        self.send('RELEASE')
-        self.send('GET')
         self.tick()
 
+    def disable_pilot(self):
+        self.pilot_enabled = False
+        self.keys.clear()
+
+    def enable_pilot(self):
+        if self.owns_session and self.last_tel_seq is not None and time.monotonic() - self.last_rx < .5:
+            self.keys.clear()
+            self.pilot_enabled = True
+        else:
+            self.ack.set('Connect and receive fresh telemetry before enabling pilot input')
+
+    def expire_link(self, now):
+        if now - self.last_rx >= .5:
+            self.disable_pilot()
+            self.owns_session = False
+            self.telemetry.pop('arm_token', None)
+
+    def acquire(self):
+        if self.telemetry.get('armed'):
+            self.ack.set('Disarm before reconnecting the command session')
+            return
+        self.pending.clear()
+        self.disable_pilot()
+        self.last_tel_seq = None
+        self.owns_session = False
+        self.hello_seq = None
+        self.discovery_seq = self.send('GET')
+
     def send(self, kind, **values):
+        if kind in ('STOP', 'DISARM', 'RELEASE'):
+            self.disable_pilot()
+        if kind == 'ARM' and not self.pilot_enabled:
+            self.ack.set('Explicitly enable pilot input before ARM')
+            return
+        if kind not in ('GET','HELLO','STOP','DISARM') and not self.owns_session:
+            self.ack.set('Acquire ownership with Connect / resume first')
+            return
+        if kind in ('ARM', 'CLEAR_FAULT'):
+            token = self.telemetry.get('arm_token')
+            if type(token) is not int or not 0 <= token <= 0xffffffff:
+                self.ack.set('Query current status before ARM or CLEAR_FAULT')
+                return
+            values['arm_token'] = token
+        if kind in ('STOP', 'DISARM', 'RELEASE', 'ARM', 'CLEAR_FAULT'):
+            self.telemetry.pop('arm_token', None)
         if kind == 'MANUAL' and hasattr(self, 'throttle'):
             self.throttle.set(self.telemetry.get('collective_us',1180))
         self.seq = (self.seq + 1) & 0xffffffff
         data = dict(type=kind, seq=self.seq, **values)
+        if kind != 'GET' and self.session_id is not None:
+            data['session'] = self.session_id
         try:
             self.sock.sendto(json.dumps(data, allow_nan=False).encode(), ('192.168.4.1', 4210))
-            if kind != 'CMD':
-                self.pending[self.seq] = (time.monotonic(), kind)
+            self.pending[self.seq] = (time.monotonic(), kind)
+            return self.seq
         except (OSError, ValueError) as exc:
             self.ack.set(str(exc))
 
@@ -123,16 +175,92 @@ class Station:
             return
         elif key == 'space':
             self.keys.clear()
-        else:
+        elif self.pilot_enabled:
             self.keys.add(key)
+
+    def release_key(self, event):
+        self.keys.discard(event.keysym.lower())
+
+    def pilot_axes(self):
+        k = self.keys if self.pilot_enabled else set()
+        return dict(roll=float(('d' in k)-('a' in k)),
+                    pitch=float(('s' in k)-('w' in k)),
+                    yaw=float(('e' in k)-('q' in k)),
+                    climb=float(('r' in k)-('f' in k)))
 
     def receive(self, data):
         if not isinstance(data, dict):
             return
-        self.last_rx = time.monotonic()
+        seq = data.get('seq')
+        if type(seq) is not int or not 0 <= seq <= 0xffffffff:
+            return
+        for name in ('session', 'last_seq'):
+            if name in data and (type(data[name]) is not int or not 0 <= data[name] <= 0xffffffff):
+                return
+        for name in ('ok', 'owned', 'owner_active', 'seq_set'):
+            if name in data and type(data[name]) is not bool:
+                return
+        if data.get('seq_set') and 'last_seq' not in data:
+            return
         if data.get('type') == 'ACK':
-            self.pending.pop(data.get('seq'), None)
+            if seq not in self.pending:
+                return
+            if time.monotonic() - self.pending[seq][0] > 1:
+                return
+            if self.pending[seq][1] not in ('GET', 'HELLO', 'RELEASE') and (
+                'session' in data and data['session'] != self.session_id):
+                return
+        elif data.get('type') == 'TEL':
+            if not self.owns_session or data.get('session') != self.session_id:
+                return
+            if self.last_tel_seq is not None and not 0 < (seq-self.last_tel_seq) & 0xffffffff < 0x80000000:
+                return
+            if not isinstance(data.get('armed'), bool):
+                return
+            for name, count in [('relative', 3), ('gyro', 3), ('motors', 4), ('outputs', 4)]:
+                values = data.get(name)
+                if not isinstance(values, list) or len(values) != count or any(
+                    type(v) not in (int, float) or not -1e6 <= v <= 1e6 or not math.isfinite(v)
+                    for v in values):
+                    return
+            if 'collective_us' in data:
+                value = data['collective_us']
+                if type(value) not in (int, float) or not 1000 <= value <= 2000:
+                    return
+            self.last_tel_seq = seq
+            self.last_rx = time.monotonic()
+        else:
+            return
+        if type(data.get('arm_token')) is int and 0 <= data['arm_token'] <= 0xffffffff:
+            self.telemetry['arm_token'] = data['arm_token']
+        if data.get('type') == 'ACK':
+            pending = self.pending.pop(data.get('seq'), None)
             self.ack.set(f"ACK {data.get('seq')}: {data.get('reason')}")
+            if pending and data.get('seq') == self.discovery_seq and pending[1] == 'GET':
+                self.discovery_seq = None
+                if data.get('ok') and type(data.get('session')) is int:
+                    if data.get('owner_active') and not data.get('owned'):
+                        self.ack.set('Another IP owns the controller; owner must release while disarmed')
+                    else:
+                        self.session_id = data['session']
+                        if data.get('owner_active') and data.get('seq_set'):
+                            self.seq = data['last_seq']
+                        self.hello_seq = self.send('HELLO')
+            elif pending and data.get('seq') == self.hello_seq and pending[1] == 'HELLO':
+                self.hello_seq = None
+                self.owns_session = bool(data.get('ok') and data.get('owned') and data.get('session') == self.session_id)
+                if self.owns_session:
+                    self.last_rx = time.monotonic()  # bounded grace to receive the first TEL
+            elif pending and pending[1] == 'RELEASE':
+                if data.get('ok'):
+                    self.owns_session = False
+                    self.session_id = None
+                    self.discovery_seq = self.hello_seq = None
+                    self.pending.clear()
+                elif 'owned' in data:
+                    self.owns_session = bool(data['owned'] and data.get('session') == self.session_id)
+            elif pending and 'owned' in data and (not data['owned'] or data.get('session') != self.session_id):
+                self.owns_session = False
         if data.get('type') == 'TEL':
             self.telemetry = data
             self.live.set('\n'.join(f'{k}: {data.get(k)}' for k in ['state','mode','relative','gyro','height','target','requested_target','alt_error','outputs','collective_us','manual_throttle_us','motors','armed','arming_block_reason','reference_ready','reference_samples','imu_ok','range_ok','range_age_ms','range_rejected','alt_configured','alt_validated','battery_status','fault','watchdog','overruns']))
@@ -149,19 +277,32 @@ class Station:
                     if not var.get() or data.get('type') == 'ACK':
                         var.set(str(value))
 
+    def receive_datagram(self, raw, source):
+        if source != ('192.168.4.1', 4210) or len(raw) > 4096:
+            return
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError, RecursionError, OverflowError):
+            return
+        self.receive(data)
+
     def tick(self):
         now = time.monotonic()
+        self.expire_link(now)
         if now >= self.next_send:
             self.next_send = now + .02
             k = self.keys
             if self.telemetry.get('mode') != 'ALTITUDE_HOLD':
                 self.throttle.set(max(1180,min(1800,self.throttle.get()+2*(('up' in k)-('down' in k)))))
-            self.send('CMD', roll=float(('d' in k)-('a' in k)), pitch=float(('s' in k)-('w' in k)), yaw=float(('e' in k)-('q' in k)), climb=float(('r' in k)-('f' in k)),throttle=float(self.throttle.get()))
+            if self.owns_session:
+                if not self.pilot_enabled:
+                    k = set()
+                    self.throttle.set(1180)
+                self.send('CMD', **self.pilot_axes(), throttle=float(self.throttle.get()))
         for _ in range(20):
             try:
                 raw, source = self.sock.recvfrom(4096)
-                if source[0] == '192.168.4.1':
-                    self.receive(json.loads(raw))
+                self.receive_datagram(raw, source)
             except BlockingIOError:
                 break
             except (OSError, ValueError, TypeError):
@@ -169,11 +310,16 @@ class Station:
         expired = [seq for seq, (sent, _) in self.pending.items() if now-sent > 1]
         for seq in expired:
             _, kind = self.pending.pop(seq)
+            if kind == 'CMD':
+                continue
+            if kind in ('HELLO','RELEASE'):
+                self.owns_session = False
             self.ack.set(f'{kind}: acknowledgement timed out; query status before retrying')
-        self.status.set('CONNECTED' if now-self.last_rx < .5 else 'TELEMETRY LOST — command timeout disarms ESP32')
+        self.status.set(('CONNECTED / OWNER' if self.owns_session else 'CONNECTED / NO CONFIRMED OWNERSHIP') if now-self.last_rx < .5 else 'TELEMETRY LOST — command timeout disarms ESP32')
         self.root.after(10, self.tick)
 
     def close(self):
+        self.disable_pilot()
         for _ in range(3):
             self.send('STOP')
         self.send('RELEASE')

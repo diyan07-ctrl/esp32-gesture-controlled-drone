@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Calibrated provisional gesture mapping
 
 Both flex endpoints must be measured; invalid/missing/rail endpoints inhibit commands. The ADC signal is normalized by (raw-open)/(bent-open), supporting either wiring polarity, then first-order filtered with 40 ms time constant. A normalized span of at least 100 counts is required as an initial plausibility check, not proof of adequate noise margin.

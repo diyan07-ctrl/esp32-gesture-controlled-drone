@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Ordered verification procedure
 
 Executed software results are in [validation-results](validation-results.md). The steps below are procedures, **NOT EXECUTED** hardware tests in this session. The owner reports earlier COM9/4 MB detection and individual motor tests; those do not prove the new firmware, wiring, flight control or failsafe behavior.
