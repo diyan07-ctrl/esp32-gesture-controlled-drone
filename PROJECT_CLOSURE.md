@@ -1,6 +1,6 @@
 # Project engineering closure — 2026-11-22
 
-**SOFTWARE/DOCUMENTATION HANDOVER COMPLETE, AIRCRAFT NOT FLIGHT-READY.** This describes the documented source handover, not physical acceptance of the aircraft or recovery of the missing owner bench sketch. Execution/CI status is recorded in [closure validation](docs/closure-validation.md). All ten clean-checkout jobs passed for the implementation commit; final documentation-head checks and merge disposition are linked in PR #7.
+**SOFTWARE/DOCUMENTATION HANDOVER COMPLETE, AIRCRAFT NOT FLIGHT-READY.** This describes the documented source handover, not physical acceptance of the aircraft or recovery of the missing owner bench sketch. Execution/CI status is recorded in [closure validation](docs/closure-validation.md). All ten clean-checkout jobs passed for the initial implementation baseline; final documentation-head checks and merge disposition are linked in PR #7.
 
 ## Scope delivered
 
@@ -55,7 +55,7 @@ Begin with the root sensor-only build, props removed and propulsion isolated. Ve
 
 ## Final source and review record
 
-Branch: `closure/engineering-handover`. Final implementation commit: [b1ab6dd6c6aa8490e7b6caa90ed4f34fb193b56f](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/commit/b1ab6dd6c6aa8490e7b6caa90ed4f34fb193b56f). All implementation changes are frozen at this commit; this final record update changes only documentation. Both [push CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/45025649664) and [PR CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/45025655871) completed successfully, all ten jobs each.
+Branch: `closure/engineering-handover`. Final implementation commit: [05522684eb376f567a97c43c9c59554d49d40318](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/commit/05522684eb376f567a97c43c9c59554d49d40318). This includes the final client fix for malformed discovery metadata, extreme numeric telemetry and invalid UDP framing/senders, with 22 deterministic Python tests passing locally. All implementation changes are frozen at this commit; this final record update changes only documentation. For the initial implementation baseline `b1ab6dd`, both [push CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/45025649664) and [PR CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/45025655871) completed successfully, all ten jobs each.
 
 Final closure PR: [#7](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/pull/7). Its [final commit list](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/pull/7/commits) and [exact-head checks](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/pull/7/checks) identify the subsequent handover-record commit and its CI. The PR's final body records the literal final head SHA, merge commit and exact final-run links after verification. A tracked document cannot embed its own commit SHA without changing that SHA; the tested implementation is named above and the final metadata head is resolved from that external immutable review record.
 
