@@ -1,6 +1,6 @@
 # Project engineering closure — 2026-11-22
 
-**SOFTWARE/DOCUMENTATION HANDOVER COMPLETE, AIRCRAFT NOT FLIGHT-READY.** This describes the documented source handover, not physical acceptance of the aircraft or recovery of the missing owner bench sketch. Execution/CI status is recorded in [closure validation](docs/closure-validation.md); pending checks prevent merge until resolved.
+**SOFTWARE/DOCUMENTATION HANDOVER COMPLETE, AIRCRAFT NOT FLIGHT-READY.** This describes the documented source handover, not physical acceptance of the aircraft or recovery of the missing owner bench sketch. Execution/CI status is recorded in [closure validation](docs/closure-validation.md). All ten clean-checkout jobs passed for the implementation commit; final documentation-head checks and merge disposition are linked in PR #7.
 
 ## Scope delivered
 
@@ -55,6 +55,10 @@ Begin with the root sensor-only build, props removed and propulsion isolated. Ve
 
 ## Final source and review record
 
-Branch: `closure/engineering-handover`. Exact final source commit and PR/merge/CI links are recorded below after checks and PR creation. A commit cannot contain its own SHA without changing that SHA; the immutable final head is therefore identified by the PR head/merge record, while subsequent documentation records can name the tested implementation commit explicitly.
+Branch: `closure/engineering-handover`. Final implementation commit: [b1ab6dd6c6aa8490e7b6caa90ed4f34fb193b56f](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/commit/b1ab6dd6c6aa8490e7b6caa90ed4f34fb193b56f). All implementation changes are frozen at this commit; this final record update changes only documentation. Both [push CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/45025649664) and [PR CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/runs/45025655871) completed successfully, all ten jobs each.
 
-Final implementation commit: pending final check/commit. PR: pending creation. Merge: pending exact-head CI and policy review. This section must be completed before delivery; it is not evidence that pending checks passed.
+Final closure PR: [#7](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/pull/7). Its [final commit list](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/pull/7/commits) and [exact-head checks](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/pull/7/checks) identify the subsequent handover-record commit and its CI. The PR's final body records the literal final head SHA, merge commit and exact final-run links after verification. A tracked document cannot embed its own commit SHA without changing that SHA; the tested implementation is named above and the final metadata head is resolved from that external immutable review record.
+
+Merge is authorized only after the exact documentation head passes all jobs, using ordinary protected-policy-aware merge with a matching-head guard, never an administrative bypass. The PR state/merge record is authoritative for whether merge actually occurred. Main had no protection/ruleset requirement or required review at inspection; this does not waive any check. Issues #1, #2 and #3 were reviewed, linked to handover, explicitly marked OPEN — FLIGHT BLOCKER and retained open.
+
+Final engineering status: **SOFTWARE/DOCUMENTATION HANDOVER COMPLETE, AIRCRAFT NOT FLIGHT-READY.** Missing bench source, AP brownouts, hardware measurements and airborne failsafe remain blockers; completion of this handover does not close those acceptance criteria.
