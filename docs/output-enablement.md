@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # ESC output enablement and motor testing
 
 Four constants in firmware/common/configuration/config.h default false: outputsVerified, powerVerified, propulsionVerified and controllerValidated. They gate LEDC initialization in both the drone and separate motor_test image. No radio/serial command bypasses these gates. Changing flags is not engineering evidence.

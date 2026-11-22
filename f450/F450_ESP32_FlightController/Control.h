@@ -69,10 +69,12 @@ inline bool mix(float t, float r, float p, float y, float *m) {
     return false;
   }
   // Body FRD: +roll right down, +pitch nose up, +yaw nose right.
-  m[0] = t - r + p - y;
-  m[1] = t + r + p + y;
-  m[2] = t + r - p - y;
-  m[3] = t - r - p + y;
+  // Closure correction: owner reports FR CCW, FL CW, RL CCW, RR CW.
+  // Positive yaw increases CCW rotor commands; physical feedback remains unverified.
+  m[0] = t - r + p + y;
+  m[1] = t + r + p - y;
+  m[2] = t + r - p + y;
+  m[3] = t - r - p - y;
   for (int i = 0; i < 4; i++) {
     if (m[i] > 2000)
       m[i] = 1989;

@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Actual drone BNO055 PID shadow capture
 
 Generated from ignored local UDP JSONL logs. Values are sensor-frame measurements or software calculations; **no ESC signals were sent**.

@@ -1,0 +1,358 @@
+> ARCHIVAL README. Superseded by [README.md](README.md) and [PROJECT_CLOSURE.md](PROJECT_CLOSURE.md). Current hardware has one MPU6050 and no glove. Historical claims below retain their original context.
+
+# F450 Drone Development
+
+The current laptop Wi-Fi UDP controller, Arduino firmware, Python ground station,
+reference PID audit and validation instructions are in **[f450/README.md](f450/README.md)**.
+Gesture control has been dropped for this development stage. The material below
+documents the earlier implementation retained for history.
+
+## Earlier gesture-controlled implementation
+
+Two ESP32 boards provide glove input and an experimental onboard quadcopter
+controller. A separate USB laptop instrument cluster is the next planned subsystem.
+**Engineering bench project; not flight-ready. Output verification gates remain false.**
+
+## Current drone-only BNO055 bench image
+
+The current **PID shadow milestone** adds a separate motor-inhibited
+`drone_pid_bench` target. It runs the existing PID and X-frame mixer with real
+BNO055 data, sends read-only UDP PID telemetry, and starts in sensor mode.
+`MOTOR_LOCKED` sends no ESC signal. The exact installed ESC model and safe pulse
+contract are unknown, so no individual motor test has been run. See the
+[validation guide](docs/pid-bench-validation.md) and
+[actual capture report](docs/pid-bench-capture-2026-11-05.md).
+
+The drone-side IMU has changed to **BNO055**. The glove remains MPU6050 and is
+outside this milestone. The new `drone_bench` image scans GPIO21/22, checks the
+BNO055 identity, reads its six-axis fusion attitude, initializes ESP-NOW, joins
+a configured 2.4 GHz Wi-Fi network and sends CRC-checked UDP telemetry. ESC pins
+25/26/32/33 are inputs. It contains no motor, PID or arming path. The historical
+`drone` and `drone_sensors` MPU6050 targets are retained for regression only and
+must not be flashed onto the BNO055-equipped board. Use
+[drone bench setup and results](docs/drone-bno055-bench.md) for exact PowerShell
+commands, wiring, protocol, actual hardware observations and open tests.
+
+[Repository](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone) ·
+[CI](https://github.com/diyan07-ctrl/esp32-gesture-controlled-drone/actions/workflows/firmware-ci.yml) ·
+[Design and phase plan](docs/master-plan.md) · [Hardware audit](docs/hardware-audit-2026-11-05.md)
+
+## Status and hardware revision
+
+The earlier migration targeted MPU6050 on both boards and potentiometer throttle.
+The retained historical source uses the MPU6050-specific profile and dedicated pot ADC36.
+The driver deliberately rejects MPU6500. [Migration and sensor acceptance](docs/sensor-migration.md)
+and [actual milestone results](docs/sensor-migration-results.md) distinguish
+software checks from outstanding physical sensor tests.
+The MPU6050/potentiometer migration remains available for the glove and
+historical builds. Current drone testing uses the BNO055 bench image. The
+desktop instrument cluster remains planned; the read-only UDP console works.
+
+| Subsystem | Implemented baseline | New target / acceptance still needed |
+|---|---|---|
+| Glove | MPU6050, stable flex/pot captures, NVS, filtering/hysteresis, ESP-NOW | Actual sensor/ADC/calibration and gesture bench acceptance |
+| Drone bench | BNO055 internal IMU-mode fusion, ESP-NOW receiver initialization and Wi-Fi UDP telemetry; outputs disabled | Physical motion signs, stability, dropout and two-board link acceptance |
+| Historical drone | MPU6050 complementary estimate; guarded controller retained | Do not flash on BNO055 hardware; no flight integration yet |
+| Sensor diagnostics | glove_sensors / historical drone_sensors images | Physical glove sensor acceptance remains |
+| Radio | Encoded v2 commands/status, CRC, sessions, encrypted peer | Actual two-board pairing, packet-loss and reconnect evidence |
+| ESC | Separate motor_test, LEDC 50 Hz / 1000–2000 us candidate | Exact ESC compatibility, scope traces and motor checks |
+| Desktop | Read-only UDP telemetry console and JSONL logging | Standalone instrument cluster, 3D model and replay |
+| Safety | Guarded default outputs, bench fault latch | Validated airborne failsafe and all flight gates |
+
+## Historical flight architecture (inactive on current BNO055 bench)
+
+~~~text
+Flex + potentiometer + glove MPU6050
+             |
+       Glove ESP32 ---- ESP-NOW validated commands ---- Drone ESP32
+                                                          |
+                                                MPU6050 -> estimator
+                                                angle -> rate PID -> mixer
+                                                          |
+                                                 four ESCs / motors
+                                                          |
+                                               USB telemetry snapshots
+                                                          |
+                                             Laptop instruments / 3D / logs
+~~~
+
+All flight control remains onboard. Laptop disconnection cannot remove an arming
+interlock or supply motor commands. FRD body axes: X forward, Y right, Z down;
+positive roll right side down, pitch nose up, yaw clockwise viewed from above.
+Yaw is relative gyro integration and drifts; there is no absolute heading,
+altitude hold, position hold or autonomous landing.
+
+Retain cascaded angle-P/rate-PID with separate axes, bounded integral/output,
+filtered derivative on measurement and mixer desaturation. 250 Hz is a configured
+control target, not measured sustained performance; PWM remains a separate 50 Hz
+baseline. Gains are bench placeholders. [Upstream comparison, sources and license
+review](docs/open-source-comparison.md) covers PX4, ArduPilot, Betaflight and x-io
+Fusion. [Control equations and tuning](docs/flight-control-algorithm.md).
+
+## Bill of materials
+
+| Component | Specification | Qty | Purpose / compatibility |
+|---|---|---:|---|
+| Frame / distribution | F450 X frame / rated PDB | 1 | Verify orientation, terminals and current rating |
+| Motors | A2212 1000KV | 4 | Exact maker, prop/load/current curves still needed |
+| ESCs | 30 A | 4 | Identify model, BEC, logic level, PWM endpoints and shutdown |
+| Drone MCU | ESP32 DevKit V1 | 1 | 3.3 V GPIO; regulated supply only |
+| Glove MCU | ESP32 DevKit V1 | 1 | Independent power, ADC1 analog inputs |
+| Drone IMU | BNO055 breakout | 1 | Actual I2C address 0x29, identity 0xA0; breakout electrical details pending |
+| Glove IMU | MPU6050 breakout | 1 | Glove driver checks identity 0x68; hardware acceptance pending |
+| Flex sensors | Thumb and index resistive sensors | 2 | Measure flat/bent resistance and endpoints |
+| Potentiometer | Linear analog throttle control | 1 | Actual resistance/travel and fault behavior to verify |
+| Battery | 3S 11.1 V 2200 mAh LiPo | 1 | 12.6 V full; current capability/condition to validate |
+| Propellers | Matched CW/CCW to actual motor/pack | 4 | Historical owner report 1045; load compatibility unverified |
+| Electronics regulator | Verified board-compatible supply | 1 drone | Current/transient/USB backfeed validation required |
+| Glove supply | USB or verified regulated source | 1 | No raw LiPo into MCU |
+| Divider / conditioning | Two flex circuits and pot interface | 1 set | Select measured resistor values; safe ADC range |
+| Harness / mounting | Rated connectors, wire, insulation, IMU mount | 1 set | Strain relief and separated power/sensor routing |
+| Optional monitor | Protected calibrated battery divider | 1 | Disabled until electrically verified |
+| Test equipment | DMM, controlled supply, scope/logic analyzer | Access | Required for electrical/timing acceptance |
+| Loaded test equipment | Guarded thrust/current/thermal fixture | Access | Required before flight validation |
+
+The detailed [BOM](hardware/bom.csv) reflects the BNO055 drone and MPU6050
+glove revision. It is an inventory, not electrical compatibility approval.
+HC-SR04 remains an optional historical accessory, disabled by default. No physical
+harness or electrical compatibility is established by the inventory.
+
+## Wiring
+
+GPIO numbers are chip GPIOs, not connector positions. Remove propellers and
+isolate propulsion power during wiring, firmware upload and sensor tests.
+
+| Board | Signal | Connection | Status |
+|---|---|---|---|
+| Drone bench | BNO055 SDA / SCL | GPIO21 / GPIO22 | Address 0x29 and identity 0xA0 observed; pullups unmeasured |
+| Drone bench | BNO055 supply / GND | Breakout-compatible rail / local GND | Exact rail and breakout not verified |
+| Glove | MPU6050 SDA / SCL | GPIO21 / GPIO22 | Glove hardware acceptance pending |
+| Glove | MPU6050 VCC / GND | Verified compatible 3.3 V / local GND | Inspect actual breakout |
+| Glove | MPU6050 AD0 | GND for address 0x68 | Confirm identity separately |
+| Glove | Thumb / index nodes | GPIO34 / GPIO35 | Separate 3.3 V flex dividers |
+| Glove | Pot wiper | GPIO36 / VP | Implemented dedicated ADC1 input; confirm physical header |
+| Glove | Pot endpoints | 3.3 V / GND | Confirm orientation and electrical travel |
+| Drone | ESC1 signal | GPIO25, M1 front-right | Owner-reported, verify physically |
+| Drone | ESC2 signal | GPIO26, M2 front-left | Owner-reported, verify physically |
+| Drone | ESC3 signal | GPIO32, M3 rear-left | Owner-reported, verify physically |
+| Drone | ESC4 signal | GPIO33, M4 rear-right | Owner-reported, verify physically |
+| Drone | ESC signal grounds | Common electronics ground | Verify actual connector pinouts |
+| Drone | Optional battery ADC | GPIO34 via verified protection/divider | Disabled |
+
+~~~text
+3V3 -- flex --+-- selected fixed resistor -- GND   (one per finger)
+             +-- conditioning -- ADC34 or ADC35
+3V3 -- pot end A; GND -- pot end B; wiper -- conditioning -- ADC36
+
+3S battery -- rated power connection -- PDB -- ESC power -- motor phases
+                                      |
+                               verified regulator -- ESP32 supported input
+ESP32 GPIO25/26/32/33 ------------------------------ ESC signals
+ESP32 GND ----------------------------------------- ESC signal grounds
+Drone ESP32 compatible rail/GND -- BNO055; GPIO21/22 -- SDA/SCL
+~~~
+
+[Current sensor wiring contract](docs/sensor-migration.md) is checked against source
+and automated assertions. GPIO assignments are software-verified; actual continuity,
+voltage levels and harness placement remain unverified. The
+[design-stage audit](docs/hardware-audit-2026-11-05.md)
+provides divider selection and fault considerations. Fixed flex resistors depend
+on measured sensor resistance; no exact value is established. GPIO34/35/36 have
+no internal pull resistors. Keep analog inputs in their characterized safe range,
+never above 3.3 V. Pot usable travel must stay inside ADC counts 32..4063;
+design/verify end resistance or travel stops before calibration. Rail and calibrated-
+range faults clear throttle, but a plausible floating/stuck wiper needs hardware
+fault protection and remains a physical-test risk.
+
+Never apply 3S directly to ESP32/IMU. Do not parallel BEC positives or assume every
+ESC includes a BEC. Identify and isolate unused positive leads, use one verified
+supply scheme and check simultaneous USB/external power. Common signal reference
+is required; propulsion current must not flow in sensor ground wiring.
+
+[Existing wiring diagrams](diagrams/README.md), [motor layout](diagrams/motor-layout.svg)
+and [schematic status](hardware/schematics/README.md) are reference material.
+A component-specific electrical schematic remains pending exact ESC, regulator,
+breakout and analog-component identification; these drawings are not a verified
+manufacturing schematic. GPIO order alone does not prove physical motor numbering.
+
+## Firmware installation and baseline build
+
+Current reproducible baseline: Python 3.11, PlatformIO Core 6.1.18,
+Espressif32 6.9.0, Arduino ESP32 2.0.17, board esp32dev. Wire, WiFi and Preferences
+are framework libraries; no external PID or IMU dependency is required. Current
+ESC adapter uses LEDC; the historical ESP32Servo motor test is owner evidence,
+not proof of this adapter's electrical behavior.
+
+~~~powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install platformio==6.1.18
+.\.venv\Scripts\python.exe -m platformio run -e glove
+.\.venv\Scripts\python.exe -m platformio run -e drone
+.\.venv\Scripts\python.exe -m platformio run -e motor_test
+.\.venv\Scripts\python.exe -m platformio run -e glove_sensors -e drone_sensors
+.\.venv\Scripts\python.exe -m platformio run -e drone_bench
+.\.venv\Scripts\python.exe tools/run_host_tests.py
+node tools/check_repository.mjs
+~~~
+
+The native test runner needs a C++ compiler; Windows may use Zig 0.13.0 and
+`--zig .venv/Lib/site-packages/ziglang/zig.exe`. Open the repository root in
+VS Code with PlatformIO, preserving the common platformio.ini. Do not create
+three unrelated Arduino sketches. [Detailed build/upload guide](docs/build-and-upload.md).
+
+Before uploading, identify each board by USB enumeration and its own station MAC.
+Use a verified current port; COM9 was historical, not guaranteed. First use the
+sensor-only image on each respective board; COMx below is a placeholder:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m serial.tools.list_ports
+.\.venv\Scripts\python.exe -m platformio run -e glove_sensors -t upload --upload-port COMx
+.\.venv\Scripts\python.exe -m platformio device monitor -p COMx -b 115200
+~~~
+
+Choose `-e drone_bench` for the connected BNO055 drone. `-e drone_sensors` and
+`-e drone` are retained MPU6050 targets and must not be flashed on that board.
+Keep propulsion disconnected and output gates false. The current drone bench
+image initializes ESP-NOW and Wi-Fi but has no ESC output calls. Record physical
+sensor and communication acceptance before flight-control integration.
+
+## ESP-NOW setup
+
+1. Obtain each board's printed station MAC from its correct firmware/serial port.
+2. Follow [private provisioning](docs/communication-protocol.md) using the pairing
+   tool; configure explicit peer MACs, compatible channel and private keys on both.
+   Do not commit keys or local_secrets.h.
+3. Compile and flash each board separately; both must use matching command v2.
+4. Verify received sequence, acknowledgments, accepted/rejected/lost counts and
+   receiver-local command age with props off. Default unprovisioned images cannot pair.
+5. Test corruption, loss, timeout and reconnect: reconnection must never re-arm.
+   Keep the laptop outside the command path.
+
+[Protocol details](docs/communication-protocol.md) explain encoding and freshness.
+The proposed USB COBS/CRC protocol is separate and described in the
+[architecture](docs/master-plan.md); it is not yet the current 5 Hz serial format.
+
+## Laptop SIL laboratory and future ground station
+
+The [laptop-only SIL laboratory](simulation/README.md) now runs native firmware
+algorithms against seeded MPU6050/ADC/RF models and assumed six-degree-of-freedom
+physics. Its [reference report](simulation/reports/reference/REPORT.md) records
+filter, controller, mixer and fault results; the [dashboard capture](simulation/reports/reference/dashboard.png)
+shows the actual rendered Qt/OpenGL application. Run `python -m simulation.validate`
+from the repository root after installing the documented dependencies. This
+does not connect to hardware or make the current controller flight-ready. The
+SIL run found and fixed a one-cycle pitch-envelope validity defect. Existing
+gains, motor-test behavior and disabled flight outputs remain preserved.
+
+The current drone bench sends live Wi-Fi UDP telemetry to a read-only
+[`ground_station.udp_listener`](ground_station/udp_listener.py), which validates
+CRC/sequence and can write JSONL logs. See the [bench guide](docs/drone-bno055-bench.md).
+The full instrument-cluster ground station remains a separate future subsystem.
+
+Use Python 3.11, PySide6, pyqtgraph, PyOpenGL, NumPy and pyserial in a dedicated
+virtual environment. There is no `ground_station/main.py` dashboard yet; the
+current [`requirements.txt`](ground_station/requirements.txt) covers the UDP
+console only. The dashboard will have separate installation instructions.
+[Desktop design and acceptance](docs/ground-station-design.md).
+
+The planned application has a dark instrument cluster, quaternion-driven F450
+model, four motor bars, throttle, attitude/rate cards, PID plots, raw/scaled IMU,
+link/USB health, loop timing, logging, CSV export and labeled replay. Port/baud,
+connect/disconnect, fullscreen, graph pause/reset, camera orbit/reset and
+telemetry display controls remain desktop features. Serial acquisition uses a
+worker thread and bounded queues. Offline/stale display freezes and labels the
+last attitude; no simulated live movement. PWM is commanded output, not measured
+thrust/RPM. Battery is unavailable until a verified divider is installed.
+
+Identify the actual CP210x/CH340 or other USB bridge before installing its vendor
+driver. A port cannot be shared with Serial Monitor. Hardware OpenGL rendering,
+50 Hz throughput and latency need measurement; no zero-latency claim is made.
+PID editing will require separate guarded configuration mode and explicit save;
+initial desktop monitoring must be read-only.
+
+## Calibration and operating procedure
+
+The current [calibration guide](docs/calibration-guide.md) documents the migrated
+MPU6050 and flex/pot pipeline: stationary startup gyro/level offsets, `o`/`b` flex
+and `l`/`h` pot endpoint captures, then explicit `s` to save. No default endpoints
+permit commands. Level offset is not six-face accelerometer calibration.
+Do not save guessed endpoints or claim calibrated heading from a six-axis IMU.
+
+1. Inspect frame, connectors, polarity, LiPo condition, regulator, IMU mounting and
+   documented motor map. Remove all props for initial work.
+2. Power electronics with propulsion isolated; inspect rails and sensor identity.
+3. Start glove at measured low throttle and neutral pose; calibrate flex, pot,
+   gyro bias and accelerometer as documented for the active hardware profile.
+4. Start drone stationary/level; verify calibration, IMU signs and measured loop timing.
+5. Verify RF sequences/ages, explicit stop, timeout and no automatic re-arm.
+6. Connect dashboard only once implemented; inspect valid actual telemetry and
+   correct display direction, output inhibition and warnings.
+7. Arming requires low throttle, released-then-held deliberate arm input, healthy
+   calibration/link/timing and all physical output gates. Default builds cannot arm
+   motor outputs. Do not clear gates merely to make the system run.
+8. Follow ordered propeller-off tests, then guarded characterization and reviewed
+   control-sign/tuning procedures. No aggressive loaded tuning or free flight here.
+9. Disarm deliberately, verify actuator shutdown and isolate battery power before
+   handling propulsion. Disconnect glove/USB as appropriate for verified power wiring.
+10. Inspect temperatures, damage, pack condition and logs; record failures and
+    corrective actions before another run.
+
+[Ordered acceptance tests](docs/testing-and-validation.md) ·
+[Safety supervisor](docs/safety-and-failsafe.md) · [Output gates](docs/output-enablement.md).
+Current link loss after 200 ms latches no-pulse shutdown. **This is a bench failsafe
+that can crash an airborne aircraft.** No validated landing/airborne loss policy
+is implemented; that remains a flight blocker.
+
+## Troubleshooting
+
+| Symptom | First checks |
+|---|---|
+| Upload fails | Correct board/port, data-capable USB cable, closed monitor, actual bridge driver, boot mode |
+| IMU not detected | MPU6050 identity 0x68 vs I2C address, rails/pullups, SDA/SCL, AD0; MPU6500 deliberately rejected |
+| Flex noisy/reversed | Common ground, measured divider/endpoints, orientation, wiring, ADC range and mechanical strain |
+| Pot noisy/unsafe | Dedicated GPIO36 wiring, continuity, non-rail travel, stable l/h captures, calibrated range and wiper fault bias |
+| ESP-NOW offline | Both MACs/channel/keys/version, provisioning, source filtering, age/ACK counters |
+| Motor direction wrong | Props off; physical map, ESC phase order, spin and correction signs; never fix by guessing GPIO order |
+| ESC will not arm | Actual manual/endpoints/logic, common ground and output gates; no automatic full-throttle calibration |
+| IMU drift | Stationary calibration, warmup, mount/vibration, acceleration rejection; yaw drift has no absolute correction |
+| PID oscillation | Stop test; review signs, saturation, filter delay, measured timing, actuator bandwidth and gains |
+| Serial disconnect | Exclusive port ownership, cable/power, matching baud and protocol, boot/session reset |
+| SIL 3D blank/incorrect | Install the documented simulation dependencies, verify local OpenGL support and reset the camera; the separate real telemetry app is not implemented |
+
+[Detailed baseline troubleshooting](docs/troubleshooting.md).
+
+## Structure, tests and evidence
+
+Existing layout is retained: firmware/{common,glove,drone,motor_test}, tests/{unit,
+integration}, simulation/{native,config,tests}, tools, docs, hardware and diagrams. The separate
+planned ground_station/{app,dashboard,visualization,telemetry} will reuse the
+versioned wire contract, not flight-loop code. [Final directory plan](docs/master-plan.md).
+
+[Historical executed validation](docs/validation-results.md) belongs to its exact
+MPU6500 implementation SHA and CI run, not the new target. Every phase must record
+files/commit, build commands/results, procedures, actual measurements, failures
+and remaining work. Distinguish compilation, host tests, hardware bench tests,
+integrated tests and flight. Simulation is an assumed plant, not F450 evidence.
+
+[This design-stage execution report](docs/design-review-results.md) records current
+checks and publication. [Current sensor milestone evidence](docs/sensor-migration-results.md)
+covers the migration. Separate physical IMU tests on both boards gate further
+flight-control integration; telemetry, desktop and flight readiness remain later work.
+Use a development branch and subsystem commits; do not overwrite main. No flight
+release is implied by a successful build or push.
+
+## Safety and license
+
+Keep props removed around firmware development and bench electronics. Use a
+controlled area, guards and appropriate supervision for later powered tests.
+Balance-charge LiPo packs with suitable equipment, inspect damaged/swollen packs,
+prevent shorts and follow the pack maker's handling/storage guidance. Verify
+loaded voltage/current/thermal margins; labels do not prove power feasibility.
+
+Hardware inspection, calibration, motor/prop direction, PWM/failsafe behavior,
+loop latency, controller signs, measured tuning and supervised validation all
+remain required before flight. Laptop availability is never a flight safety dependency.
+
+[Known limitations](docs/known-limitations.md) · [Engineering report](docs/engineering-report.md) ·
+[MIT license](LICENSE). Third-party adoption must preserve its own license and
+attribution; the research comparison is not a claim of upstream certification.

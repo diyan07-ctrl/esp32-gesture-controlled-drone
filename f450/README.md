@@ -1,6 +1,8 @@
+> ARCHIVAL implementation. Superseded for installed MPU6050 hardware by [project closure](../PROJECT_CLOSURE.md). Closure corrects the owner-reported yaw signs and inhibits all propulsion outputs. The prior measured/calculated results describe their stated original revision.
+
 # F450 laptop-controlled ESP32 controller
 
-This directory is the current laptop-control implementation. Build it separately from the legacy gesture firmware in the parent repository. It has not been flown or bench verified. Exact reference gains are preserved; they are not evidence that these gains stabilize an F450 with BNO055 and 50 Hz ESCs. See [VALIDATION.md](VALIDATION.md) for executed checks and results.
+This directory retains the archival BNO055/HC-SR04 laptop-control implementation. Build it separately from the legacy gesture firmware in the parent repository. It has not been flown or bench verified. Exact reference gains are preserved; they are not evidence that these gains stabilize an F450 with BNO055 and 50 Hz ESCs. See [VALIDATION.md](VALIDATION.md) for executed checks and results.
 
 Stage 3 safety policy and propeller-free procedures are in [docs/testing-and-validation.md](docs/testing-and-validation.md). `Safety.h` supplies the sequence/token barrier and latched state checks shared with native tests. The motor rotations below are intended wiring/propulsion directions, **not physically verified directions**.
 
@@ -25,14 +27,16 @@ python -m platformio run -d f450 -t upload
 
 Run those commands from the repository root. Upload is an intentional separate operation; this implementation has not been uploaded during development.
 
+The pulse-output behavior described below is historical: closure does not attach/write LEDC while `propulsionOutputsReleased=false`, and ARM reports ARCHIVAL_OUTPUTS_INHIBITED. Do not release this gate for the installed MPU6050 aircraft.
+
 ## Wiring and coordinate convention
 
 | Device | Connection |
 |---|---|
-| M1 front-right CW | GPIO25 |
-| M2 front-left CCW | GPIO26 |
-| M3 rear-left CW | GPIO32 |
-| M4 rear-right CCW | GPIO33 |
+| M1 front-right CCW | GPIO25 |
+| M2 front-left CW | GPIO26 |
+| M3 rear-left CCW | GPIO32 |
+| M4 rear-right CW | GPIO33 |
 | BNO055 SDA / SCL | GPIO21 / GPIO22 |
 | BNO055 address / supply | 0x29 / 3.3 V |
 | HC-SR04 trigger / echo | GPIO18 / GPIO19 |
@@ -92,10 +96,10 @@ Reference outputs are `1.024*(T−R−P−Y, T−R+P+Y, T+R+P−Y, T+R−P+Y)` i
 
 | Motor | Equation | +roll | +pitch | +yaw |
 |---|---|---|---|---|
-| M1 front-right CW | T−R+P−Y | decrease | increase | decrease |
-| M2 front-left CCW | T+R+P+Y | increase | increase | increase |
-| M3 rear-left CW | T+R−P−Y | increase | decrease | decrease |
-| M4 rear-right CCW | T−R−P+Y | decrease | decrease | increase |
+| M1 front-right CCW | T−R+P+Y | decrease | increase | increase |
+| M2 front-left CW | T+R+P−Y | increase | increase | decrease |
+| M3 rear-left CCW | T+R−P+Y | increase | decrease | increase |
+| M4 rear-right CW | T−R−P−Y | decrease | decrease | decrease |
 
 Negative corrections reverse these effects. Left lift produces right-down roll, front lift produces nose-up pitch; CCW rotor acceleration produces clockwise body reaction. Mathematical checks do not verify actual motor direction, propeller orientation or sensor mounting.
 
@@ -123,7 +127,7 @@ State transitions are explicit: BOOT → SENSOR_INITIALIZATION → STARTUP_REFER
 
 ## Ground station
 
-Install Python 3.10+ with Tcl/Tk (included in standard Windows installer); no pip GUI dependency is needed. On Linux install your distribution's `python3-tk`. Join **F450_DRONE**, password **F450Drone2026**, then:
+Install Python 3.10+ with Tcl/Tk (included in standard Windows installer); no pip GUI dependency is needed. On Linux install your distribution's `python3-tk`. For electronics-only archival testing, copy `F450_ESP32_FlightController/local_f450_wifi.example.h` to ignored `local_f450_wifi.h`, configure a private 8–63 character AP password and rebuild. Default credentials do not start an AP. Propulsion outputs remain inhibited. Join the configured AP, then:
 
 ```powershell
 python f450/f450_ground_station.py

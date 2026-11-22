@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Attitude, PID and Quad-X control
 
 Body axes are FRD: X forward, Y right, Z down. Positive roll lowers the right side, positive pitch raises the nose, positive yaw is clockwise viewed from above. Mount the sensor raw X forward, Y left, Z up. The driver maps acceleration to a gravity proxy (-rawX,+rawY,+rawZ), and angular rate to FRD (+rawGX,-rawGY,-rawGZ). Verify each sign physically.

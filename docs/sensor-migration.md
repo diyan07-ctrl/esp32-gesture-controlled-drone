@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # MPU6050 and potentiometer milestone
 
 Target: two MPU6050s, thumb/index flex sensors and potentiometer throttle. No
@@ -56,8 +58,7 @@ performance. Record real noise and latency before changing filters.
 
 Primary register source: [InvenSense MPU-6000/6050 register map, revision 4.2,
 hosted copy](https://hw101.tbs1.de/mpu6050/doc/MPU-6000-6050-Register-Map.pdf).
-The original [TDK URL](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf)
-redirected during this implementation. [Espressif's MPU6050 documentation](https://github.com/espressif/esp-drone/blob/master/docs/en/rst/drivers.rst)
+The original TDK URL redirected during this implementation; closure links to the verified hosted copy above. [Espressif's MPU6050 documentation](https://github.com/espressif/esp-drone/blob/master/docs/en/rst/drivers.rst)
 also describes identity/address separation and startup configuration. The driver
 is independently implemented; no source code from those projects was copied.
 

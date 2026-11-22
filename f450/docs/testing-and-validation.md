@@ -1,3 +1,5 @@
+> ARCHIVAL implementation/reference record. Superseded for installed hardware by [project closure](../../PROJECT_CLOSURE.md). BNO055/HC-SR04/glove instructions do not describe the current aircraft. F450 propulsion outputs are now inhibited; prior pulse/gain/mixer results describe their stated source revision.
+
 # Stage 4 protocol, safety and physical verification
 
 This is the current F450 procedure. Directions are intended configuration, not observed physical results. Legacy gesture firmware uses a separate configuration and must not be used to infer this mapping.

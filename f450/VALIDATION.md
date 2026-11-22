@@ -1,3 +1,5 @@
+> ARCHIVAL implementation/reference record. Superseded for installed hardware by [project closure](../PROJECT_CLOSURE.md). BNO055/HC-SR04/glove instructions do not describe the current aircraft. F450 propulsion outputs are now inhibited; prior pulse/gain/mixer results describe their stated source revision.
+
 # Stage 4 validation record
 
 Executed 2026-11-06. No firmware was uploaded. No hardware, interactive GUI or flight validation was performed.

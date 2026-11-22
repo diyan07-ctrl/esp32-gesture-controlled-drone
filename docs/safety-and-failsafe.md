@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Safety supervisor and deliberate failsafe policy
 
 The software implements a conservative **immediate motor pulse shutdown**, suitable only as an unvalidated bench baseline. Loss of control in flight can cause an uncontrolled fall. No reliable altitude sensing, position sensing, controlled landing, redundancy or independent motor watchdog is available. Do not characterize the current failsafe as a validated airborne policy.

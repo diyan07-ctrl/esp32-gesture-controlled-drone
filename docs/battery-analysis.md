@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Battery analysis and voltage sensing
 
 [Power budget](power-budget.md) contains energy, C-rating and endurance calculations. Before use, record pack maker, chemistry, continuous C, connector, age, swelling/damage, per-cell balance and loaded voltage. Use a compatible balance charger and its instructions in a suitable nonflammable location. Do not charge damaged packs.

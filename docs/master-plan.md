@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # F450 ecosystem architecture and implementation contract
 
 Date: 2026-11-05. Status: initial design for review, not an implemented release.

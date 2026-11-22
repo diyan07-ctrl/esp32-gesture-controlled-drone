@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 > Historical 2026-10-30 baseline. Hardware/control assumptions below are superseded by the owner's 2026-11-03 specifications and confirmations. Use [current wiring](connection-tables.md), [control](flight-control-algorithm.md), and [known limitations](known-limitations.md). Old procurement alternatives are not required additions to the current architecture.
 
 # Hardware feasibility audit
@@ -40,7 +42,7 @@ No motor outputs are enabled in the default build. Do not finalize assembly or e
 ## Sources
 
 - [Espressif DevKitC V4 power and pinout](https://docs.espressif.com/projects/esp-idf/en/v5.3.1/esp32/hw-reference/esp32/get-started-devkitc.html) — reference board only, not identification of owned boards.
-- [TDK MPU6050 product specification](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Datasheet.pdf)
-- [TDK register map revision 4.2](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf)
+- [TDK MPU6050 product specification](https://product.tdk.com/system/files/dam/doc/product/sensor/mortion-inertial/imu/data_sheet/mpu-6000-datasheet1.pdf)
+- [InvenSense register map revision 4.2 (hosted copy)](https://hw101.tbs1.de/mpu6050/doc/MPU-6000-6050-Register-Map.pdf)
 - [Espressif ESP-NOW API](https://docs.espressif.com/projects/esp-idf/en/v4.4/esp32/api-reference/network/esp_now.html)
 - [E-S Motor manufacturer A2212 series sheet hosted by RobotShop](https://cdn.robotshop.com/rbm/a00a7635-653b-4220-aac9-b0c23c5c5e2c/5/520795f9-301f-4e66-a0a3-019811d1f78b/222c434c_a2212-brushless-motor.pdf) — illustrative only.

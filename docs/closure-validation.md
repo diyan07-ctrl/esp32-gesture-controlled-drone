@@ -1,0 +1,28 @@
+# Closure validation record — 2026-11-22
+
+This record separates source checks from physical evidence. Commands run from the repository root. Local Windows `.venv` launcher points to an unavailable system Python in the sandbox; local runs use workspace `.cache/python/python.exe` (3.11.9) with `PYTHONPATH=.venv/Lib/site-packages`, existing PlatformIO cache and Zig cache directories under the workspace. Clean-checkout commands are in [README](../README.md); CI checks the clean environment.
+
+| Command / check | Result at preparation | Evidence / limit |
+|---|---|---|
+| `python tools/run_host_tests.py --zig .venv/Lib/site-packages/ziglang/zig.exe` | PASS | 12 native executables; root Python utility/UDP/shadow suites; mocked hardware and local UDP loopback only |
+| `python f450/run_tests.py --zig .venv/Lib/site-packages/ziglang/zig.exe` | PASS | Four native executables, 19 client tests, client syntax; production router and mocked adapters |
+| `python -m platformio run -e glove -e drone -e motor_test -e glove_sensors -e drone_sensors -e drone_bench -e drone_pid_bench` | PASS final local rerun | Seven pinned Arduino 2.0.17 images; final local source rerun passed all seven environments |
+| `python -m platformio run -d f450` | PASS after short-path retry | Initial Windows long include path/CreateProcess error resolved with temporary `subst P:` and workspace-local caches; mapping removed; no code/check disabled |
+| `python -m simulation.validate --skip-host --output build/sil/closure` | PASS on rerun | 21 tests, zero failures/errors/skips; scenario report zero unexpected failures and six explicit engineering limitations; initial link failure during document authoring resolved |
+| `node tools/check_repository.mjs` | PASS | Local Markdown links/fences, source contracts, diagram brackets, gates, BOM/motor/static security patterns; not a visual Mermaid render or external-link fetch |
+| `python tools/check_closure.py` | PASS | All tracked Python syntax; tracked secret patterns/private configuration/generated artifacts; not proof that arbitrary unknown secrets never existed |
+| clang-format 18.1.8 on changed C++/sketch files | PASS | Existing reference snapshots excluded and preserved byte-for-byte |
+| `git diff --check` | PASS | Whitespace only |
+| Exact final commit CI | Pending | Merge only after all final-head jobs succeed; no policy bypass |
+| Arduino ESP32 3.x | NOT EXECUTED / unsupported | No maintained 3.x target; different LEDC/watchdog APIs |
+| ESP32 physical tests / scope / load fixture / flight | NOT EXECUTED | No firmware upload, output command, instrument or flight measurement performed |
+
+First root native results: 1553 core, 49 sensor/gesture, 3042 MPU6050 driver, 49 calibration storage, 2356 migration, 10007 orchestration, 6012 telemetry, 13 BNO055, 45 shadow, 501 mocked pipeline assertions. Toy roll model finite, final rate 3.61019deg/s and angle 20.2055deg; assumed-plant controller harness completed 62727 steps/cases. These counts are assertions/steps, not independent physical cases. Root Python suites: four utility, four UDP (including loopback), three shadow cases. Windows PowerShell wraps successful unittest stderr as NativeCommandError text when redirected; exit status and unittest OK determine result.
+
+Failures and fixes: authenticated Git initially failed from sandbox credential access, then ownership mismatch; approved access with a process-local safe-directory exception resolved inspection without changing global trust. Git writes required approved access to read-only `.git`. Workspace Python avoids the broken sandbox virtualenv launcher. Seven firmware images compiled; PlatformIO's optional update check reported restricted network access after successful builds. No hardware check is inferred from any of these software results.
+
+Owner bench observations and historical BNO055 captures are classified in [handover](handover.md). No current MPU6050 motor trace was found; no new command/RPM plot is fabricated. External URLs retained from historical records were not all independently re-fetched; local link validation and exact repository/issue/PR APIs are checked. Visual diagram rendering is not claimed.
+
+Local F450 short-path build: 30,352 bytes RAM and 414,669 bytes flash with default AP disabled/output inhibition; calculated image size is not runtime evidence. YAML syntax parsed with PyYAML. Changed C++/sketch files formatted with clang-format 18.1.8 and checked with `--dry-run --Werror`. Node checker passed 1,001 static assertions across 208 source/document files at this stage. Exact final-head CI below is the clean-checkout verification; local logs are ignored under `build/closure-*.txt`.
+
+Final root local rerun: seven environments SUCCESS, exit 0 (15.761s). Final F450 native/client rerun: four native executables PASS and 19 Python tests OK, exit 0. Root host rerun: all 12 executables and 11 Python cases passed, exit 0. Serial-port inventory returned `no ports found`; no device was opened. Local ignored Wi-Fi provisioning exists for historical BNO055 builds, so clean unprovisioned image reproducibility is established by CI rather than local image byte counts. No credential contents are included in the repository or handover. Two broken legacy TDK links were repaired using the verified manufacturer specification and authored register-map mirror; official Espressif migration documentation was checked.

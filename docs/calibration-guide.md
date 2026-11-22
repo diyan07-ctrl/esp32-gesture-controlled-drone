@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Calibration guide
 
 All initial work is propeller-off, with propulsion disconnected until the procedure explicitly calls for a controlled motor test. Never calibrate ESC endpoints automatically at boot. Preserve actual sensor readings and calibration/test records.

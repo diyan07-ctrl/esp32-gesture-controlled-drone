@@ -12,6 +12,13 @@
 #endif
 #include "Protocol.h"
 #include "Dispatcher.h"
+#if __has_include("local_f450_wifi.h")
+#include "local_f450_wifi.h"
+#else
+#include "local_f450_wifi.example.h"
+#endif
+// Archival hardware differs from the installed MPU6050 aircraft. No output release.
+constexpr bool propulsionOutputsReleased = false;
 // Supported toolchain: Arduino ESP32 2.0.17. Sensor axes: X forward, Y right, Z down.
 const int pins[4] = {25, 26, 32, 33};
 Adafruit_BNO055 bno(55, 0x29);
@@ -59,6 +66,8 @@ uint32_t sensorTime = 0, rangeTime = 0, commandTime = 0, controlTime = 0, overru
 const char *fault = "STARTUP";
 
 const char *inputBlockReason() {
+  if (!propulsionOutputsReleased)
+    return "ARCHIVAL_OUTPUTS_INHIBITED";
   if (armed)
     return "ALREADY_ARMED";
   if (!pwmOK)
@@ -106,6 +115,8 @@ void IRAM_ATTR echoISR() {
   portEXIT_CRITICAL_ISR(&echoMux);
 }
 void pwm() {
+  if (!propulsionOutputsReleased)
+    return;
   uint32_t duties[4];
   bool valid = true;
   for (int i = 0; i < 4; i++)
@@ -450,8 +461,10 @@ void packet() {
     sendDoc(reply, ip);
 }
 void telemetry() {
+  static uint32_t telemetrySequence = 0;
   StaticJsonDocument<3000> d;
   d["type"] = "TEL";
+  d["seq"] = telemetrySequence++;
   xSemaphoreTake(guard, portMAX_DELAY);
   auto arr = [&](const char *key, float *values, int n) {
     JsonArray a = d.createNestedArray(key);
@@ -510,12 +523,22 @@ void telemetry() {
 void setup() {
   Serial.begin(115200);
   guard = xSemaphoreCreateMutex();
+  if (!guard) {
+    for (int pin : pins)
+      pinMode(pin, INPUT);
+    Serial.println("FAULT: mutex allocation; reboot required");
+    while (true)
+      delay(1000);
+  }
   order.token = esp_random();
   session.generation = esp_random();
   memcpy(gains, defaults, sizeof(gains));
   for (int i = 0; i < 4; i++) {
-    pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;
-    ledcAttachPin(pins[i], i);
+    pinMode(pins[i], INPUT);
+    if (propulsionOutputsReleased) {
+      pwmOK = (ledcSetup(i, 50, 16) > 0) && pwmOK;
+      ledcAttachPin(pins[i], i);
+    }
   }
   pwm();
   if (!pwmOK) {
@@ -543,14 +566,25 @@ void setup() {
   pinMode(18, OUTPUT);
   pinMode(19, INPUT);
   attachInterrupt(digitalPinToInterrupt(19), echoISR, CHANGE);
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
-                    IPAddress(255, 255, 255, 0));
-  WiFi.softAP("F450_DRONE", "F450Drone2026");
-  udp.begin(4210);
+  // Empty/default credentials do not start the AP. Brownout protection stays enabled.
+  if (strlen(F450_AP_PASSWORD) >= 8 && strlen(F450_AP_PASSWORD) <= 63) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
+                      IPAddress(255, 255, 255, 0));
+    if (WiFi.softAP(F450_AP_SSID, F450_AP_PASSWORD))
+      udp.begin(4210);
+  } else {
+    Serial.println("AP disabled: configure private local_f450_wifi.h for electronics-only tests");
+  }
   watchdogOK = esp_task_wdt_init(1, true) == ESP_OK;
-  xTaskCreatePinnedToCore(sensorTask, "sensors", 4096, NULL, 2, NULL, 0);
-  xTaskCreatePinnedToCore(controlTask, "control", 4096, NULL, 4, NULL, 1);
+  BaseType_t sensorCreated = xTaskCreatePinnedToCore(sensorTask, "sensors", 4096, NULL, 2, NULL, 0);
+  BaseType_t controlCreated =
+      xTaskCreatePinnedToCore(controlTask, "control", 4096, NULL, 4, NULL, 1);
+  if (sensorCreated != pdPASS || controlCreated != pdPASS) {
+    xSemaphoreTake(guard, portMAX_DELAY);
+    stop("TASK_ALLOCATION");
+    xSemaphoreGive(guard);
+  }
 }
 void loop() {
   static uint32_t trigger = 0, tel = 0;

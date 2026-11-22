@@ -1,10 +1,15 @@
 import json
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from f450_ground_station import Station
 
 
 class GroundStationTests(unittest.TestCase):
+    def setUp(self):
+        self.clock = patch('f450_ground_station.time.monotonic', return_value=.1)
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
+
     def make_station(self):
         station = Station.__new__(Station)
         station.session_id = 1
@@ -15,6 +20,10 @@ class GroundStationTests(unittest.TestCase):
         station.pending = {}
         station.telemetry = {}
         station.ack = Mock()
+        station.keys = set()
+        station.pilot_enabled = True
+        station.last_tel_seq = None
+        station.last_rx = 0
         return station
     def test_numeric_rejection(self):
         for text in ['nan', 'inf', '-inf', '101', '-1', 'invalid']:
@@ -156,6 +165,85 @@ class GroundStationTests(unittest.TestCase):
         station.acquire()
         station.sock.sendto.assert_not_called()
         self.assertTrue(station.owns_session)
+
+    def telemetry_packet(self, seq=1, **values):
+        return dict(type='TEL', seq=seq, session=1, armed=False,
+                    relative=[0, 0, 0], gyro=[0, 0, 0], motors=[1000]*4,
+                    outputs=[0]*4, **values)
+
+    def test_stale_out_of_order_and_invalid_telemetry(self):
+        station = self.make_station()
+        station.live = Mock()
+        station.throttle = Mock()
+        station.receive(self.telemetry_packet(10))
+        self.assertEqual(station.last_tel_seq, 10)
+        for packet in [self.telemetry_packet(10), self.telemetry_packet(9),
+                       self.telemetry_packet(0x8000000a), self.telemetry_packet(True),
+                       dict(self.telemetry_packet(11), session=2),
+                       dict(self.telemetry_packet(11), gyro=[float('nan')]*3),
+                       dict(self.telemetry_packet(11), armed='false')]:
+            station.receive(packet)
+            self.assertEqual(station.last_tel_seq, 10)
+        station.receive(self.telemetry_packet(11))
+        self.assertEqual(station.last_tel_seq, 11)
+
+    def test_shutdown_timeout_and_explicit_enable(self):
+        station = self.make_station()
+        station.keys = {'w'}
+        station.telemetry = {'arm_token': 55}
+        station.expire_link(.6)
+        self.assertFalse(station.pilot_enabled)
+        self.assertFalse(station.owns_session)
+        self.assertFalse(station.keys)
+        self.assertNotIn('arm_token', station.telemetry)
+        station.send('ARM')
+        station.sock.sendto.assert_not_called()
+        station.enable_pilot()
+        self.assertFalse(station.pilot_enabled)
+        station.owns_session = True
+        station.last_rx = .1
+        station.last_tel_seq = 2
+        station.enable_pilot()
+        self.assertTrue(station.pilot_enabled)
+        station.send('STOP')
+        self.assertFalse(station.pilot_enabled)
+        self.assertEqual(json.loads(station.sock.sendto.call_args.args[0])['type'], 'STOP')
+
+    def test_close_stops_before_release_and_closes_socket(self):
+        station = self.make_station()
+        station.root = Mock()
+        station.close()
+        packets = [json.loads(c.args[0])['type'] for c in station.sock.sendto.call_args_list]
+        self.assertEqual(packets, ['STOP', 'STOP', 'STOP', 'RELEASE'])
+        station.sock.close.assert_called_once()
+        station.root.destroy.assert_called_once()
+        self.assertFalse(station.pilot_enabled)
+
+    def test_uncorrelated_ack_cannot_restore_arm_token(self):
+        station = self.make_station()
+        station.receive(dict(type='ACK', seq=999, arm_token=44))
+        self.assertNotIn('arm_token', station.telemetry)
+
+    def test_key_release_focus_loss_and_disabled_input_are_neutral(self):
+        station = self.make_station()
+        station.keys = {'w', 'd', 'e', 'r'}
+        self.assertEqual(station.pilot_axes(), dict(roll=1, pitch=-1, yaw=1, climb=1))
+        for key in ['w', 'd', 'e', 'r']:
+            station.release_key(Mock(keysym=key))
+        self.assertEqual(station.pilot_axes(), dict(roll=0, pitch=0, yaw=0, climb=0))
+        station.keys = {'w'}
+        station.disable_pilot()
+        self.assertFalse(station.keys)
+        self.assertEqual(station.pilot_axes()['pitch'], 0)
+
+    def test_expired_and_wrong_session_ack_cannot_restore_token(self):
+        station = self.make_station()
+        station.pending[2] = (-2, 'ARM')
+        station.receive(dict(type='ACK', seq=2, arm_token=42, session=1))
+        self.assertNotIn('arm_token', station.telemetry)
+        station.pending[2] = (.1, 'ARM')
+        station.receive(dict(type='ACK', seq=2, arm_token=42, session=2))
+        self.assertNotIn('arm_token', station.telemetry)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Known limitations and flight dependencies
 
 - No hardware test, upload, scope capture or flight was executed in this implementation session. Prior owner COM9/4 MB and individual motor checks do not verify current firmware.

@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # BNO055 PID shadow validation and motor-test gate
 
 This milestone uses the **actual BNO055** on the drone ESP32 and the existing

@@ -1,3 +1,5 @@
+> ARCHIVAL implementation/reference record. Superseded for installed hardware by [project closure](../PROJECT_CLOSURE.md). BNO055/HC-SR04/glove instructions do not describe the current aircraft. F450 propulsion outputs are now inhibited; prior pulse/gain/mixer results describe their stated source revision.
+
 # Stage 4 protocol correction report
 
 Stage 4 starts at 75402433eba659c6ef4d9ee0924cb55a4ac5e9ad and changes only protocol/session handling, client compatibility, tests and documentation. Hardware pins, mixer, PWM conversion/frequency, PID defaults, 4 ms loop, sensor/reference/altitude math and NVS persistence are preserved.

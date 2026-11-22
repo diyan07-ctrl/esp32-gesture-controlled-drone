@@ -41,7 +41,7 @@ int main() {
   mix(1500, 0, 0, 0, m);
   for (float v : m)
     near(v, 1500);
-  const float coeff[3][4] = {{-1, 1, 1, -1}, {1, 1, -1, -1}, {-1, 1, -1, 1}};
+  const float coeff[3][4] = {{-1, 1, 1, -1}, {1, 1, -1, -1}, {1, -1, 1, -1}};
   for (int axis = 0; axis < 3; axis++)
     for (int sign : {-1, 1}) {
       float c[3] = {};
@@ -51,14 +51,14 @@ int main() {
         near(m[i], 1500 + coeff[axis][i] * sign * 10);
     }
   mix(1500, 10, 20, 30, m);
-  near(m[0], 1480);
-  near(m[1], 1560);
-  near(m[2], 1460);
-  near(m[3], 1500);
+  near(m[0], 1540);
+  near(m[1], 1500);
+  near(m[2], 1520);
+  near(m[3], 1440);
   mix(1800, 400, 400, 400, m);
   for (float v : m)
     assert(v >= 1180 && v <= 2000);
-  near(m[1], 1989);
+  near(m[0], 1989);
   assert(!mix(NAN, 0, 0, 0, m));
   for (float v : m)
     near(v, 1000);

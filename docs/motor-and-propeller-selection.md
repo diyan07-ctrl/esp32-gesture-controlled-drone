@@ -1,3 +1,5 @@
+> Historical design or validation record. For the current owner-reported MPU6050 hardware, supported software and evidence limits, use [project closure](../PROJECT_CLOSURE.md). Statements of "current" below refer to that record's original revision.
+
 # Motor and propeller selection
 
 Owned motors: A2212, 1000 KV; the owner specifies 1045 propellers as of 2026-11-03. Exact manufacturers and measured compatibility remain unidentified. “A2212” does not establish a manufacturer's winding, shaft, bearings, continuous current, maximum watts or supported cells. See [current wiring/configuration](connection-tables.md).
