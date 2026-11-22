@@ -245,6 +245,44 @@ class GroundStationTests(unittest.TestCase):
         station.receive(dict(type='ACK', seq=2, arm_token=42, session=2))
         self.assertNotIn('arm_token', station.telemetry)
 
+    def test_invalid_discovery_cannot_poison_stop_sequence(self):
+        station = self.make_station()
+        station.acquire()
+        seq = station.discovery_seq
+        base = dict(type='ACK', seq=seq, ok=True, session=1, owned=True,
+                    owner_active=True, seq_set=True, last_seq=2)
+        for changes in [dict(last_seq={}), dict(last_seq=True), dict(last_seq=-1),
+                        dict(session=True), dict(session=2**32), dict(owned='yes'),
+                        dict(ok='yes'), dict(seq_set=1)]:
+            station.receive(dict(base, **changes))
+            self.assertEqual(station.discovery_seq, seq)
+        station.send('STOP')
+        self.assertEqual(json.loads(station.sock.sendto.call_args.args[0])['type'], 'STOP')
+
+    def test_extreme_or_invalid_telemetry_cannot_raise_or_renew_link(self):
+        station = self.make_station()
+        for changes in [dict(gyro=[10**400, 0, 0]), dict(session=True),
+                        dict(collective_us=float('nan')), dict(collective_us=True),
+                        dict(collective_us=1e200)]:
+            station.receive(dict(self.telemetry_packet(), **changes))
+            self.assertIsNone(station.last_tel_seq)
+            self.assertEqual(station.last_rx, 0)
+
+    def test_invalid_datagram_framing_and_sender_do_not_renew_link(self):
+        station = self.make_station()
+        source = ('192.168.4.1', 4210)
+        for raw, sender in [(b'{}{}', source), (b'\xff', source),
+                            (b'['*1500+b']'*1500, source),
+                            (b' '*4097, source),
+                            (json.dumps(self.telemetry_packet()).encode(), ('192.168.4.1', 9)),
+                            (json.dumps(self.telemetry_packet()).encode(), ('192.168.4.2', 4210))]:
+            station.receive_datagram(raw, sender)
+            self.assertEqual(station.last_rx, 0)
+        station.live = Mock()
+        station.throttle = Mock()
+        station.receive_datagram(json.dumps(self.telemetry_packet()).encode(), source)
+        self.assertEqual(station.last_tel_seq, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

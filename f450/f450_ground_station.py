@@ -194,6 +194,14 @@ class Station:
         seq = data.get('seq')
         if type(seq) is not int or not 0 <= seq <= 0xffffffff:
             return
+        for name in ('session', 'last_seq'):
+            if name in data and (type(data[name]) is not int or not 0 <= data[name] <= 0xffffffff):
+                return
+        for name in ('ok', 'owned', 'owner_active', 'seq_set'):
+            if name in data and type(data[name]) is not bool:
+                return
+        if data.get('seq_set') and 'last_seq' not in data:
+            return
         if data.get('type') == 'ACK':
             if seq not in self.pending:
                 return
@@ -212,7 +220,12 @@ class Station:
             for name, count in [('relative', 3), ('gyro', 3), ('motors', 4), ('outputs', 4)]:
                 values = data.get(name)
                 if not isinstance(values, list) or len(values) != count or any(
-                    type(v) not in (int, float) or not math.isfinite(v) for v in values):
+                    type(v) not in (int, float) or not -1e6 <= v <= 1e6 or not math.isfinite(v)
+                    for v in values):
+                    return
+            if 'collective_us' in data:
+                value = data['collective_us']
+                if type(value) not in (int, float) or not 1000 <= value <= 2000:
                     return
             self.last_tel_seq = seq
             self.last_rx = time.monotonic()
@@ -264,6 +277,15 @@ class Station:
                     if not var.get() or data.get('type') == 'ACK':
                         var.set(str(value))
 
+    def receive_datagram(self, raw, source):
+        if source != ('192.168.4.1', 4210) or len(raw) > 4096:
+            return
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError, RecursionError, OverflowError):
+            return
+        self.receive(data)
+
     def tick(self):
         now = time.monotonic()
         self.expire_link(now)
@@ -280,8 +302,7 @@ class Station:
         for _ in range(20):
             try:
                 raw, source = self.sock.recvfrom(4096)
-                if source[0] == '192.168.4.1':
-                    self.receive(json.loads(raw))
+                self.receive_datagram(raw, source)
             except BlockingIOError:
                 break
             except (OSError, ValueError, TypeError):
